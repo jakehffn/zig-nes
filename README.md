@@ -1,4 +1,4 @@
-# ZigNES
+# ZigNES 🕹️
 
 NES emulator written in Zig
 
