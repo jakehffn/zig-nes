@@ -1,6 +1,13 @@
 pub const Bus = struct {
-    read_callback: [1 << 16]?ReadCallback,
-    write_callback: [1 << 16]?WriteCallback,
+    pub const CallbackInfo = struct {
+        start_address: u16,
+        end_address: u16,
+        write_callback: WriteCallback,
+        read_callback: ReadCallback
+    };
+
+    read_callback: [1 << 16 - 1]?ReadCallback,
+    write_callback: [1 << 16 - 1]?WriteCallback,
 
     pub const BusError = error {
         UndefinedRead,
@@ -12,8 +19,8 @@ pub const Bus = struct {
 
     pub fn init() Bus {
         return .{
-            .read_callback = [_]?ReadCallback{null} ** (1 << 16),
-            .write_callback = [_]?WriteCallback{null} ** (1 << 16)
+            .read_callback = [_]?ReadCallback{null} ** (1 << 16 - 1),
+            .write_callback = [_]?WriteCallback{null} ** (1 << 16 - 1)
         };
     }
 
@@ -33,11 +40,8 @@ pub const Bus = struct {
         }
     }
 
-    pub fn set_read_callback(self: *Bus, start: u16, end: u16, callback: ReadCallback) void {
-        @memset(self.read_callback[start..end], callback);
-    }
-
-    pub fn set_write_callback(self: *Bus, start: u16, end: u16, callback: WriteCallback) void {
-        @memset(self.write_callback[start..end], callback);
+    pub fn set_callbacks(self: *Bus, callback_info: CallbackInfo) void {
+        @memset(self.read_callback[callback_info.start_address..callback_info.end_address], callback_info.read_callback);
+        @memset(self.write_callback[callback_info.start_address..callback_info.end_address], callback_info.write_callback);
     }
 };
