@@ -1,47 +1,87 @@
+const std = @import("std");
+const assert = std.debug.assert;
+
 pub const Bus = struct {
-    pub const CallbackInfo = struct {
-        start_address: u16,
-        end_address: u16,
-        write_callback: WriteCallback,
-        read_callback: ReadCallback
+    pub const BusCallback = struct {
+        const Self = @This();
+
+        ptr: *anyopaque,
+
+        readCallbackFn: ReadCallback,
+        writeCallbackFn: WriteCallback,
+
+        pub const ReadCallback = *const fn (*anyopaque, u16) u8;
+        pub const WriteCallback = *const fn (*anyopaque, u16, u8) void;
+
+        pub fn init(ptr: anytype, comptime read_callback: fn (ptr: @TypeOf(ptr), address: u16) u8, comptime write_callback: fn (ptr: @TypeOf(ptr), address: u16, data: u8) void) Self {
+            const Ptr = @TypeOf(ptr);
+            const ptr_info = @typeInfo(Ptr);
+
+            if (ptr_info != .Pointer) @compileError("ptr must be a pointer");
+            if (ptr_info.Pointer.size != .One) @compileError("ptr must be a single item pointer");
+            if (@typeInfo(ptr_info.Pointer.child) != .Struct) @compileError("ptr must be a pointer to a struct");
+
+            const gen = struct {
+                fn readCallback(pointer: *anyopaque, address: u16) u8 {
+                    const alignment = @typeInfo(Ptr).Pointer.alignment;
+                    const self = @ptrCast(Ptr, @alignCast(alignment, pointer));
+                    return @call(.always_inline, read_callback, .{self, address});
+                }
+
+                fn writeCallback(pointer: *anyopaque, address: u16, data: u8) void {
+                    const alignment = @typeInfo(Ptr).Pointer.alignment;
+                    const self = @ptrCast(Ptr, @alignCast(alignment, pointer));
+                    @call(.always_inline, write_callback, .{self, address, data});
+                }
+            };
+
+            return .{
+                .ptr = ptr,
+                .readCallbackFn = gen.readCallback,
+                .writeCallbackFn = gen.writeCallback
+            };
+        }
+
+        pub inline fn readCallback(self: Self, address: u16) u8 {
+            return self.readCallbackFn(self.ptr, address);
+        }
+
+        pub inline fn writeCallback(self: Self, address: u16, data: u8) void {
+            self.writeCallbackFn(self.ptr, address, data);
+        }
     };
 
-    read_callback: [1 << 16 - 1]?ReadCallback,
-    write_callback: [1 << 16 - 1]?WriteCallback,
+    bus_callback: [1 << 16 - 1]?*BusCallback,
 
     pub const BusError = error {
         UndefinedRead,
         UndefinedWrite
     };
 
-    pub const ReadCallback = *const fn (address: u16) u8;
-    pub const WriteCallback = *const fn (address: u16, value: u8) void;
-
     pub fn init() Bus {
         return .{
-            .read_callback = [_]?ReadCallback{null} ** (1 << 16 - 1),
-            .write_callback = [_]?WriteCallback{null} ** (1 << 16 - 1)
+            .bus_callback = [_]?*BusCallback{null} ** (1 << 16 - 1)
         };
     }
 
     pub fn read_byte(self: Bus, address: u16) !u8 {
-        if (self.read_callback[address]) |callback| {
-            return callback(address); 
+        if (self.bus_callback[address]) |bc| {
+            return bc.readCallback(address); 
         } else {
             return BusError.UndefinedRead;
         }
     }
 
     pub fn write_byte(self: Bus, address: u16, data: u8) !void {
-        if (self.write_callback[address]) |callback| {
-            callback(address, data);
+        if (self.bus_callback[address]) |bc| {
+            bc.writeCallback(address, data);
         } else {
             return BusError.UndefinedWrite;
         }
     }
 
-    pub fn set_callbacks(self: *Bus, callback_info: CallbackInfo) void {
-        @memset(self.read_callback[callback_info.start_address..callback_info.end_address], callback_info.read_callback);
-        @memset(self.write_callback[callback_info.start_address..callback_info.end_address], callback_info.write_callback);
+    pub fn set_callbacks(self: *Bus, bus_callback: *BusCallback, start_address: u16, end_address: u16) void {
+        assert(start_address <= end_address);
+        @memset(self.bus_callback[start_address..end_address], bus_callback);
     }
 };

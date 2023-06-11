@@ -1,24 +1,19 @@
-const CallbackInfo = @import("./bus.zig").Bus.CallbackInfo;
+const BusCallback = @import("./bus.zig").Bus.BusCallback;
 
 pub const TestMemory = struct {
-    callback_info: CallbackInfo,
+    const Self = @This();
 
-    pub fn init() TestMemory {
-        return .{.callback_info = .{
-            .start_address = 0,
-            .end_address = 1 << 16 - 1,
-            .read_callback = exampleMemRead,
-            .write_callback = exampleMemWrite
-        }};
+    example_mem: [1 << 16 - 1]u8 = [_]u8{0} ** (1 << 16 - 1),
+
+    fn exampleMemRead(self: *Self, address: u16) u8 {
+        return self.example_mem[address];
     }
 
-    var example_mem = [_]u8{0} ** (1 << 16 - 1);
-
-    fn exampleMemRead(address: u16) u8 {
-        return example_mem[address];
+    fn exampleMemWrite(self: *Self, address: u16, data: u8) void {
+        self.example_mem[address] = data;
     }
 
-    fn exampleMemWrite(address: u16, data: u8) void {
-        example_mem[address] = data;
+    pub fn busCallback(self: *Self) BusCallback {
+        return BusCallback.init(self, exampleMemRead, exampleMemWrite);
     }
 };

@@ -5,13 +5,14 @@ const c = @cImport({
 
 const CPU = @import("./cpu.zig").CPU;
 const Bus = @import("./bus.zig").Bus;
-const TestMemory = @import("./example_memory.zig").TestMemory;
+const TestMemory = @import("./test_memory.zig").TestMemory;
 
 pub fn main() !void {
     var bus: Bus = Bus.init();
     
-    var example_memory: TestMemory = TestMemory.init();
-    bus.set_callbacks(example_memory.callback_info);
+    var example_memory: TestMemory = .{};
+    var example_bus_callback: Bus.BusCallback = example_memory.busCallback();
+    bus.set_callbacks(&example_bus_callback, 0, 1 << 16 - 1);
 
     try bus.write_byte(0x42, 0xFF);
     std.debug.print("After setting with callback: {}\n", .{bus.read_byte(0x42) catch 0x42});
