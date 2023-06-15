@@ -327,7 +327,7 @@ pub const CPU = struct {
             .ADC => { 
                 cpu_execute_log.info("ADC\n", .{});
                 const op = self.a;
-                self.a = op + operand.value;
+                self.a = op +% operand.value;
                 self.flags.N = @truncate(u1, self.a >> 7);
                 self.flags.Z = @boolToInt(self.a == 0);
                 self.flags.C = @boolToInt(self.a < operand.value);
