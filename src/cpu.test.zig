@@ -125,5 +125,21 @@ test "ADC" {
 
     try expect(test_env.cpu.a == 113);
 
-    // TODO: Test flags
+    // Flags
+
+    // Negative and overflow
+    test_env.cpu.a = 0xEF;
+    write_next(&[_]u8{0x69, 1}, &test_env);
+    test_env.cpu.step();
+
+    try expect(test_env.cpu.flags.N == 1);
+    try expect(test_env.cpu.flags.V == 1);
+
+    // Zero and carry
+    test_env.cpu.a = 0xFF;
+    write_next(&[_]u8{0x69, 1}, &test_env);
+    test_env.cpu.step();
+
+    try expect(test_env.cpu.flags.Z == 1);
+    try expect(test_env.cpu.flags.C == 1);
 }
