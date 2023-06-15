@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const panic = std.debug.panic;
 
 pub const Bus = struct {
     pub const BusCallback = struct {
@@ -51,32 +52,27 @@ pub const Bus = struct {
         }
     };
 
-    bus_callback: [1 << 16 - 1]?*BusCallback,
-
-    pub const BusError = error {
-        UndefinedRead,
-        UndefinedWrite
-    };
+    bus_callback: [(1 << 16) - 1]?*BusCallback,
 
     pub fn init() Bus {
         return .{
-            .bus_callback = [_]?*BusCallback{null} ** (1 << 16 - 1)
+            .bus_callback = [_]?*BusCallback{null} ** ((1 << 16) - 1)
         };
     }
 
-    pub fn read_byte(self: Bus, address: u16) !u8 {
+    pub fn read_byte(self: Bus, address: u16) u8 {
         if (self.bus_callback[address]) |bc| {
             return bc.readCallback(address); 
         } else {
-            return BusError.UndefinedRead;
+            panic("Bus::Undefined read: No bus callbacks at address {X}", .{address});
         }
     }
 
-    pub fn write_byte(self: Bus, address: u16, data: u8) !void {
+    pub fn write_byte(self: *Bus, address: u16, data: u8) void {
         if (self.bus_callback[address]) |bc| {
             bc.writeCallback(address, data);
         } else {
-            return BusError.UndefinedWrite;
+            panic("Bus::Undefined write: No bus callbacks at address {X}", .{address});
         }
     }
 

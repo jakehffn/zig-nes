@@ -5,25 +5,8 @@ const c = @cImport({
 
 const CPU = @import("./cpu.zig").CPU;
 const Bus = @import("./bus.zig").Bus;
-const TestMemory = @import("./test_memory.zig").TestMemory;
 
 pub fn main() !void {
-    var bus: Bus = Bus.init();
-
-    var example_memory: TestMemory = .{};
-    var example_bus_callback: Bus.BusCallback = example_memory.busCallback();
-    bus.set_callbacks(&example_bus_callback, 0, 1 << 16 - 1);
-
-    try bus.write_byte(0x42, 0xFF);
-    std.debug.print("After setting with callback: {}\n", .{bus.read_byte(0x42) catch 0x42});
-    var cpu: CPU = CPU.init(bus);
-
-    cpu.execute(CPU.Byte{ .raw = 0x10 });
-    cpu.execute(CPU.Byte{ .raw = 0x20 });
-    cpu.execute(CPU.Byte{ .raw = 0xA6 });
-    cpu.execute(CPU.Byte{ .raw = 0x40 });
-    cpu.execute(CPU.Byte{ .raw = 0x50 });
-
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
 

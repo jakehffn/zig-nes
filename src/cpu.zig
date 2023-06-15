@@ -1,4 +1,7 @@
-const print = @import("std").debug.print;
+const std = @import("std");
+const print = std.debug.print;
+
+const cpu_execute_log = std.log.scoped(.cpu_execute);
 
 const Bus = @import("./bus.zig").Bus;
 
@@ -11,11 +14,11 @@ pub const CPU = struct {
     x: u8 = 0,
     y: u8 = 0,
     flags: Flags = .{},
-    bus: Bus,
+    bus: *Bus,
     total_cycles: u32 = 0,
 
     const Flags = packed struct {
-        S: u1 = 0, // Sign
+        N: u1 = 0, // Negative
         V: u1 = 0, // Overflow
         _: u1 = 1,
         B: u1 = 0, // Break Command
@@ -93,7 +96,7 @@ pub const CPU = struct {
         immediate,
         implied,
         indirect,
-        x_indirect,
+        indirect_x,
         indirect_y,
         relative,
         zero_page,
@@ -102,8 +105,8 @@ pub const CPU = struct {
     };
 
     const Instruction = struct {
-        mnemonic: Mnemonic,
-        addressing_mode: AddressingMode
+        mnemonic: Mnemonic = .NOP,
+        addressing_mode: AddressingMode = .implied
     };
 
     pub const Byte = packed union {
@@ -131,11 +134,11 @@ pub const CPU = struct {
 
     // [addr_mode][group]
     const addressing_mode = [8][3]?AddressingMode {
-        [_]?AddressingMode {.immediate, .zero_page_x, .immediate},
+        [_]?AddressingMode {.immediate, .indirect_x, .immediate},
         [_]?AddressingMode {.zero_page, .zero_page, .zero_page},
         [_]?AddressingMode {null, .immediate, .accumulator},
         [_]?AddressingMode {.absolute, .absolute, .absolute},
-        [_]?AddressingMode {null, .zero_page_y, null},
+        [_]?AddressingMode {null, .indirect_y, null},
         [_]?AddressingMode {.zero_page_x, .zero_page_x, .zero_page_x},
         [_]?AddressingMode {null, .absolute_y, null},
         [_]?AddressingMode {.absolute_x, .absolute_x, .absolute_x}
@@ -147,9 +150,10 @@ pub const CPU = struct {
         defaults[0x10] = .{.mnemonic = .BPL, .addressing_mode = .relative}; 
         defaults[0x30] = .{.mnemonic = .BMI, .addressing_mode = .relative}; 
         defaults[0x50] = .{.mnemonic = .BVC, .addressing_mode = .relative}; 
-        defaults[0x71] = .{.mnemonic = .BCC, .addressing_mode = .relative}; 
-        defaults[0x90] = .{.mnemonic = .BCS, .addressing_mode = .relative}; 
-        defaults[0xB0] = .{.mnemonic = .BNE, .addressing_mode = .relative}; 
+        defaults[0x70] = .{.mnemonic = .BVS, .addressing_mode = .relative}; 
+        defaults[0x90] = .{.mnemonic = .BCC, .addressing_mode = .relative}; 
+        defaults[0xB0] = .{.mnemonic = .BCS, .addressing_mode = .relative}; 
+        defaults[0xD0] = .{.mnemonic = .BNE, .addressing_mode = .relative}; 
         defaults[0xF0] = .{.mnemonic = .BEQ, .addressing_mode = .relative}; 
         // Interrupt and subroutine instructions
         defaults[0x00] = .{.mnemonic = .BRK, .addressing_mode = .implied}; 
@@ -204,100 +208,187 @@ pub const CPU = struct {
         2, 5, 0, 0, 0, 4, 6, 0, 2, 4, 0, 0, 0, 4, 7, 0,
     };
 
-    pub fn getInstruction(inst: Byte) Instruction {
+    fn getInstruction(inst: Byte) Instruction {
         // Unmapped opcodes are treated as NOP
         if (opcode_cycles[inst.raw] == 0) {
-            return .{.mnemonic = .NOP, .addressing_mode = .implied};
+            return .{};
         } 
-        
-        return (instruction_exception[inst.raw]) orelse 
-            inst: {
-                if (mnemonic[inst.data.mnemonic][inst.data.group]) |mnem| {
-                    if (addressing_mode[inst.data.addressing_mode][inst.data.group]) |addr_mode| {
-                        break :inst .{.mnemonic = mnem, .addressing_mode = addr_mode};
-                    }
-                }
-                break :inst .{.mnemonic = .NOP, .addressing_mode = .implied};
+
+        // Return NOP if the opcode is an exception or doesn't have a mapped mnemonic or addressing mode
+        return instruction_exception[inst.raw] orelse 
+            Instruction{
+                .mnemonic = mnemonic[inst.data.mnemonic][inst.data.group] orelse return .{},
+                .addressing_mode = addressing_mode[inst.data.addressing_mode][inst.data.group] orelse return .{}
             };
     }
 
-    pub fn init(bus: Bus) CPU {
+    pub fn init(bus: *Bus) CPU {
         return .{.bus = bus};
     }
 
     pub fn step(self: *Self) void {
         var byte = self.bus.read_byte(self.pc);
+        self.pc += 1;
         self.execute(Byte{.raw = byte});
         self.total_cycles += opcode_cycles[byte];
     }
     
-    pub fn execute(self: *Self, inst: Byte) void {
-        _ = self;
-
-        defer print("Group: {}\nAddressing Mode: {}\nMnemonic: {}\n\n", .{inst.data.group, inst.data.addressing_mode, inst.data.mnemonic});    
+    fn execute(self: *Self, inst: Byte) void {
         var curr_instruction = getInstruction(inst);
+
+        const Operand = struct {
+            address: u16 = 0,
+            value: u8 = 0
+        };
+
+        std.debug.print("\nMnemonic: {}\nAddressing mode: {}\n", 
+            .{curr_instruction.mnemonic, curr_instruction.addressing_mode});
+
+        const operand: Operand = switch(curr_instruction.addressing_mode) {
+            .accumulator => .{.value = self.a},
+            .absolute => blk: {
+                const addr_low: u16 = self.bus.read_byte(self.pc);
+                const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                self.pc += 2;
+                const addr: u16 = (addr_high << 8) | addr_low;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .absolute_x => blk: {
+                const addr_low: u16 = self.bus.read_byte(self.pc);
+                const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                self.pc += 2;
+                const addr: u16 = (addr_high << 8) | addr_low + self.x;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .absolute_y => blk: {
+                const addr_low: u16 = self.bus.read_byte(self.pc);
+                const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                self.pc += 2;
+                const addr: u16 = (addr_high << 8) | addr_low + self.y;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .immediate => blk: {
+                const val = self.bus.read_byte(self.pc);
+                self.pc += 1;
+                break :blk .{.value = val};
+            },
+            // Implied does not require an address or value
+            .implied => .{},
+            .indirect => blk: {
+                // Indirect is only used by the JMP instruction, so no need to get value
+                const addr_low: u16 = self.bus.read_byte(self.pc);
+                const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                self.pc += 2;
+                const addr: u16 = (addr_high << 8) | addr_low;
+                break :blk .{.address = self.bus.read_byte(addr)};
+            },
+            .indirect_x => blk: {
+                const indirect_addr = self.bus.read_byte(self.pc) +% self.x;
+                self.pc += 1;
+                const addr_low: u16 = self.bus.read_byte(indirect_addr);
+                const addr_high: u16 = self.bus.read_byte(indirect_addr +% 1);
+                const addr: u16 = (addr_high << 8) | addr_low;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .indirect_y => blk: {
+                const indirect_addr = self.bus.read_byte(self.pc); 
+                self.pc += 1;
+                const indexed_addr_low: u16 = @as(u16, self.bus.read_byte(indirect_addr)) + @as(u16, self.y);
+                const carry = indexed_addr_low >> 8;
+                const addr_low: u16 = @truncate(u8, indexed_addr_low);
+                const addr_high: u16 = self.bus.read_byte(indirect_addr +% 1) +% carry;
+                const addr: u16 = (addr_high << 8) | addr_low;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .relative => blk: {
+                // Relative is only used by the branch instructions, so no need to get value
+                const addr = self.bus.read_byte(self.pc) + self.pc;
+                self.pc += 1;
+                break :blk .{.address = addr};
+            },
+            .zero_page => blk: { 
+                const addr = self.bus.read_byte(self.pc);
+                self.pc += 1;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .zero_page_x => blk: { 
+                const addr = self.bus.read_byte(self.pc) + self.x;
+                self.pc += 1;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            },
+            .zero_page_y => blk: {
+                const addr = self.bus.read_byte(self.pc) + self.y;
+                self.pc += 1;
+                break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+            }
+        };
 
         switch(curr_instruction.mnemonic) { 
             .ADC => { 
-                print("ADC\n", .{});
-
+                cpu_execute_log.info("ADC\n", .{});
+                const op = self.a;
+                self.a = op + operand.value;
+                self.flags.N = @truncate(u1, self.a >> 7);
+                self.flags.Z = @boolToInt(self.a == 0);
+                self.flags.C = @boolToInt(self.a < operand.value);
+                self.flags.V = @truncate(u1,((self.a ^ op) & (self.a ^ operand.value)));
             },
-            .AND => { print("AND\n", .{}); },
-            .ASL => { print("ASL\n", .{}); },
-            .BCC => { print("BCC\n", .{}); },
-            .BCS => { print("BCS\n", .{}); },
-            .BEQ => { print("BEQ\n", .{}); },
-            .BIT => { print("BIT\n", .{}); },
-            .BMI => { print("BMI\n", .{}); },
-            .BNE => { print("BNE\n", .{}); },
-            .BPL => { print("BPL\n", .{}); },
-            .BRK => { print("BRK\n", .{}); },
-            .BVC => { print("BVC\n", .{}); },
-            .BVS => { print("BVS\n", .{}); },
-            .CLC => { print("CLC\n", .{}); },
-            .CLD => { print("CLD\n", .{}); },
-            .CLI => { print("CLI\n", .{}); },
-            .CLV => { print("CLV\n", .{}); },
-            .CMP => { print("CMP\n", .{}); },
-            .CPX => { print("CPX\n", .{}); },
-            .CPY => { print("CPY\n", .{}); },
-            .DEC => { print("DEC\n", .{}); },
-            .DEX => { print("DEX\n", .{}); },
-            .DEY => { print("DEY\n", .{}); },
-            .EOR => { print("EOR\n", .{}); },
-            .INC => { print("INC\n", .{}); },
-            .INX => { print("INX\n", .{}); },
-            .INY => { print("INY\n", .{}); },
-            .JMP => { print("JMP\n", .{}); },
-            .JMP_abs => { print("JMP_abs\n", .{}); },
-            .JSR_abs => { print("JSR_abs\n", .{}); },
-            .LDA => { print("LDA\n", .{}); },
-            .LDX => { print("LDX\n", .{}); },
-            .LDY => { print("LDY\n", .{}); },
-            .LSR => { print("LSR\n", .{}); },
-            .NOP => { print("NOP\n", .{}); },
-            .ORA => { print("ORA\n", .{}); },
-            .PHA => { print("PHA\n", .{}); },
-            .PHP => { print("PHP\n", .{}); },
-            .PLA => { print("PLA\n", .{}); },
-            .PLP => { print("PLP\n", .{}); },
-            .ROL => { print("ROL\n", .{}); },
-            .ROR => { print("ROR\n", .{}); },
-            .RTI => { print("RTI\n", .{}); },
-            .RTS => { print("RTS\n", .{}); },
-            .SBC => { print("SBC\n", .{}); },
-            .SEC => { print("SEC\n", .{}); },
-            .SED => { print("SED\n", .{}); },
-            .SEI => { print("SEI\n", .{}); },
-            .STA => { print("STA\n", .{}); },
-            .STX => { print("STX\n", .{}); },
-            .STY => { print("STY\n", .{}); },
-            .TAX => { print("TAX\n", .{}); },
-            .TAY => { print("TAY\n", .{}); },
-            .TSX => { print("TSX\n", .{}); },
-            .TXA => { print("TXA\n", .{}); },
-            .TXS => { print("TXS\n", .{}); },
-            .TYA => { print("TYA\n", .{}); }
+            .AND => {},
+            .ASL => {},
+            .BCC => {},
+            .BCS => {},
+            .BEQ => {},
+            .BIT => {},
+            .BMI => {},
+            .BNE => {},
+            .BPL => {},
+            .BRK => {},
+            .BVC => {},
+            .BVS => {},
+            .CLC => {},
+            .CLD => {},
+            .CLI => {},
+            .CLV => {},
+            .CMP => {},
+            .CPX => {},
+            .CPY => {},
+            .DEC => {},
+            .DEX => {},
+            .DEY => {},
+            .EOR => {},
+            .INC => {},
+            .INX => {},
+            .INY => {},
+            .JMP => {},
+            .JMP_abs => {},
+            .JSR_abs => {},
+            .LDA => {},
+            .LDX => {},
+            .LDY => {},
+            .LSR => {},
+            .NOP => {},
+            .ORA => {},
+            .PHA => {},
+            .PHP => {},
+            .PLA => {},
+            .PLP => {},
+            .ROL => {},
+            .ROR => {},
+            .RTI => {},
+            .RTS => {},
+            .SBC => {},
+            .SEC => {},
+            .SED => {},
+            .SEI => {},
+            .STA => {},
+            .STX => {},
+            .STY => {},
+            .TAX => {},
+            .TAY => {},
+            .TSX => {},
+            .TXA => {},
+            .TXS => {},
+            .TYA => {}
         }
     }
 }; 
