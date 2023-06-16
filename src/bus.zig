@@ -29,10 +29,10 @@ pub const Bus = struct {
                     return @call(.always_inline, read_callback, .{self, address});
                 }
 
-                fn writeCallback(pointer: *anyopaque, address: u16, data: u8) void {
+                fn writeCallback(pointer: *anyopaque, address: u16, value: u8) void {
                     const alignment = @typeInfo(Ptr).Pointer.alignment;
                     const self = @ptrCast(Ptr, @alignCast(alignment, pointer));
-                    @call(.always_inline, write_callback, .{self, address, data});
+                    @call(.always_inline, write_callback, .{self, address, value});
                 }
             };
 
@@ -47,8 +47,8 @@ pub const Bus = struct {
             return self.readCallbackFn(self.ptr, address);
         }
 
-        pub inline fn writeCallback(self: Self, address: u16, data: u8) void {
-            self.writeCallbackFn(self.ptr, address, data);
+        pub inline fn writeCallback(self: Self, address: u16, value: u8) void {
+            self.writeCallbackFn(self.ptr, address, value);
         }
     };
 
@@ -68,9 +68,9 @@ pub const Bus = struct {
         }
     }
 
-    pub fn write_byte(self: *Bus, address: u16, data: u8) void {
+    pub fn write_byte(self: *Bus, address: u16, value: u8) void {
         if (self.bus_callback[address]) |bc| {
-            bc.writeCallback(address, data);
+            bc.writeCallback(address, value);
         } else {
             panic("Bus::Undefined write: No bus callbacks at address {X}", .{address});
         }
