@@ -14,8 +14,8 @@ const TestMemory = struct {
         return self.example_mem[address];
     }
 
-    fn exampleMemWrite(self: *Self, address: u16, data: u8) void {
-        self.example_mem[address] = data;
+    fn exampleMemWrite(self: *Self, address: u16, value: u8) void {
+        self.example_mem[address] = value;
     }
 
     pub fn busCallback(self: *Self) BusCallback {
@@ -43,7 +43,7 @@ const TestEnv = struct {
         test_env.cpu = CPU.init(&(test_env.bus));
 
         return test_env;
-    } 
+    }
 };
 
 fn write_next(data: []const u8, test_env: *TestEnv) void {
@@ -56,6 +56,8 @@ test "ADC" {
     var test_memory = TestMemory{};
     var bus_callback = test_memory.busCallback();
     var test_env = TestEnv.init(&bus_callback);
+
+    std.debug.print("\nxxx {} {}\n\n", CPU.getInstruction(.{.raw = 0x4C}));
 
     test_env.cpu.pc = 0x8000;
 
@@ -128,7 +130,7 @@ test "ADC" {
     // Flags
 
     // Negative and overflow
-    test_env.cpu.a = 0xEF;
+    test_env.cpu.a = 0b0111_1111;
     write_next(&[_]u8{0x69, 1}, &test_env);
     test_env.cpu.step();
 
