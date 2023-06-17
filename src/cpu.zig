@@ -1,5 +1,4 @@
 const std = @import("std");
-const print = std.debug.print;
 const cpu_execute_log = std.log.scoped(.cpu_execute);
 
 const Bus = @import("./bus.zig").Bus;
@@ -190,6 +189,7 @@ pub const CPU = struct {
 
         defaults[0x0A] = .{.mnemonic = .ASL_acc, .addressing_mode = .accumulator};
         defaults[0x2A] = .{.mnemonic = .ROL_acc, .addressing_mode = .accumulator};
+        defaults[0x4A] = .{.mnemonic = .LSR_acc, .addressing_mode = .accumulator};
         defaults[0x6A] = .{.mnemonic = .ROR_acc, .addressing_mode = .accumulator};
 
         defaults[0x6C] = .{.mnemonic = .JMP, .addressing_mode = .indirect};
@@ -253,13 +253,13 @@ pub const CPU = struct {
     } 
 
     inline fn stackPush(self: *Self, value: u8) void {
-        self.bus.write_byte(0x100 | self.sp, value);
+        self.bus.write_byte(0x100 | @as(u16, self.sp), value);
         self.sp -= 1;
     }
 
     inline fn stackPop(self: *Self) u8 {
         self.sp += 1;
-        return self.bus.read_byte(0x100 | self.sp);
+        return self.bus.read_byte(0x100 | @as(u16, self.sp));
     }
 
     inline fn setFlagsNZ(self: *Self, value: u8) void {
@@ -275,8 +275,8 @@ pub const CPU = struct {
             value: u8 = 0
         };
 
-        cpu_execute_log.debug("\nMnemonic: {}\nAddressing mode: {}\n", 
-            .{curr_instruction.mnemonic, curr_instruction.addressing_mode});
+        cpu_execute_log.debug("\npc: {X} Opcode: {X} Mnemonic: {} Addressing mode: {}\n", 
+            .{self.pc, inst.raw, curr_instruction.mnemonic, curr_instruction.addressing_mode});
 
         const operand: Operand = switch(curr_instruction.addressing_mode) {
             .accumulator => .{.value = self.a},
@@ -292,7 +292,7 @@ pub const CPU = struct {
                 const addr_low: u16 = self.bus.read_byte(self.pc);
                 const addr_high: u16 = self.bus.read_byte(self.pc + 1);
                 self.pc += 2;
-                const addr: u16 = (addr_high << 8) | addr_low + self.x;
+                const addr: u16 = ((addr_high << 8) | addr_low) + self.x;
                 break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
             },
             .absolute_y => blk: {
@@ -300,7 +300,7 @@ pub const CPU = struct {
                 const addr_low: u16 = self.bus.read_byte(self.pc);
                 const addr_high: u16 = self.bus.read_byte(self.pc + 1);
                 self.pc += 2;
-                const addr: u16 = (addr_high << 8) | addr_low + self.y;
+                const addr: u16 = ((addr_high << 8) | addr_low) + self.y;
                 break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
             },
             .immediate => blk: {
@@ -330,16 +330,14 @@ pub const CPU = struct {
                 // TODO: Add cycle for page crossing
                 const indirect_addr = self.bus.read_byte(self.pc); 
                 self.pc += 1;
-                const indexed_addr_low: u16 = @as(u16, self.bus.read_byte(indirect_addr)) + @as(u16, self.y);
-                const carry = indexed_addr_low >> 8;
-                const addr_low: u16 = @truncate(u8, indexed_addr_low);
-                const addr_high: u16 = self.bus.read_byte(indirect_addr +% 1) +% carry;
-                const addr: u16 = (addr_high << 8) | addr_low;
+                const addr_low: u16 = self.bus.read_byte(indirect_addr);
+                const addr_high: u16 = self.bus.read_byte(indirect_addr +% 1);
+                const addr: u16 = ((addr_high << 8) | addr_low) +% @as(u16, self.y);
                 break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
             },
             .relative => blk: {
                 // Relative is only used by the branch instructions, so no need to get value
-                const addr = self.bus.read_byte(self.pc) + self.pc;
+                const addr = @bitCast(u16, @bitCast(i8, self.bus.read_byte(self.pc)) + @bitCast(i16, self.pc) + 1);
                 self.pc += 1;
                 break :blk .{.address = addr};
             },
@@ -402,7 +400,7 @@ pub const CPU = struct {
                 }
             },
             .BIT => {
-                self.flags.Z = @boolToInt((self.a & operand.value) > 0);
+                self.flags.Z = @boolToInt((self.a & operand.value) == 0);
                 self.flags.V = @truncate(u1, operand.value >> 6);
                 self.flags.N = @truncate(u1, operand.value >> 7);
             },
@@ -503,8 +501,8 @@ pub const CPU = struct {
                 self.branch(operand.address);
             },
             .JSR => {
-                try self.stack.append(@truncate(u8, self.pc >> 8));
-                try self.stack.append(@truncate(u8, self.pc));
+                self.stackPush(@truncate(u8, self.pc >> 8));
+                self.stackPush(@truncate(u8, self.pc));
                 self.pc = operand.address;
             },
             .LDA => {
@@ -523,6 +521,7 @@ pub const CPU = struct {
                 const res = operand.value >> 1;
                 self.bus.write_byte(operand.address, res);
                 self.flags.C = @truncate(u1, operand.value);
+                std.debug.print("addr_mode: {} C: {}, value: {} address: {X} res: {}\n", .{curr_instruction.addressing_mode, self.flags.C, operand.value, operand.address, res});
                 self.setFlagsNZ(res);
             },
             .LSR_acc => {
@@ -548,7 +547,7 @@ pub const CPU = struct {
                 self.setFlagsNZ(self.a);
             },
             .PLP => {
-                self.flags = @bitCast(Flags, self.stack.pop());
+                self.flags = @bitCast(Flags, self.stackPop());
             },
             .ROL => {
                 const res = (operand.value << 1) | self.flags.C;
@@ -591,8 +590,7 @@ pub const CPU = struct {
                 // Overflow will occur iff the operands have different signs, and 
                 //      the result has a different sign than the minuend
                 self.flags.V = @truncate(u1,((op ^ operand.value) & (op ^ self.a)) >> 7);
-                self.flags.Z = @boolToInt(self.a == 0);
-                self.flags.C = @boolToInt(self.a > operand.value);
+                self.flags.C = @boolToInt(((operand.value +% (1 - self.flags.C)) <= op));
                 self.setFlagsNZ(self.a);
             },
             .SEC => {
