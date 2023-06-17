@@ -7,6 +7,7 @@ pub const Bus = struct {
         const Self = @This();
 
         ptr: *anyopaque,
+        address_offset: u16 = 0,
 
         readCallbackFn: ReadCallback,
         writeCallbackFn: WriteCallback,
@@ -25,13 +26,13 @@ pub const Bus = struct {
             const gen = struct {
                 fn readCallback(pointer: *anyopaque, address: u16) u8 {
                     const alignment = @typeInfo(Ptr).Pointer.alignment;
-                    const self = @ptrCast(Ptr, @alignCast(alignment, pointer));
+                    const self = @ptrCast(Ptr, if (alignment >= 1) @alignCast(alignment, pointer) else pointer);
                     return @call(.always_inline, read_callback, .{self, address});
                 }
 
                 fn writeCallback(pointer: *anyopaque, address: u16, value: u8) void {
                     const alignment = @typeInfo(Ptr).Pointer.alignment;
-                    const self = @ptrCast(Ptr, @alignCast(alignment, pointer));
+                    const self = @ptrCast(Ptr, if (alignment >= 1) @alignCast(alignment, pointer) else pointer);
                     @call(.always_inline, write_callback, .{self, address, value});
                 }
             };
@@ -44,19 +45,19 @@ pub const Bus = struct {
         }
 
         pub inline fn readCallback(self: Self, address: u16) u8 {
-            return self.readCallbackFn(self.ptr, address);
+            return self.readCallbackFn(self.ptr, address - self.address_offset);
         }
 
         pub inline fn writeCallback(self: Self, address: u16, value: u8) void {
-            self.writeCallbackFn(self.ptr, address, value);
+            self.writeCallbackFn(self.ptr, address - self.address_offset, value);
         }
     };
 
-    bus_callback: [(1 << 16) - 1]?*BusCallback,
+    bus_callback: [1 << 16]?*BusCallback,
 
-    pub fn init() Bus {
+    pub fn init(default_callback: *BusCallback) Bus {
         return .{
-            .bus_callback = [_]?*BusCallback{null} ** ((1 << 16) - 1)
+            .bus_callback = [_]?*BusCallback{default_callback} ** (1 << 16)
         };
     }
 
@@ -78,6 +79,7 @@ pub const Bus = struct {
 
     pub fn set_callbacks(self: *Bus, bus_callback: *BusCallback, start_address: u16, end_address: u16) void {
         assert(start_address <= end_address);
+        bus_callback.address_offset = start_address;
         @memset(self.bus_callback[start_address..end_address], bus_callback);
     }
 };
