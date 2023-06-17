@@ -4,24 +4,7 @@ const expect = std.testing.expect;
 const CPU = @import("./cpu.zig").CPU;
 const Bus = @import("./bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
-
-const TestMemory = struct {
-    const Self = @This();
-
-    example_mem: [(1 << 16) - 1]u8 = [_]u8{0} ** ((1 << 16) - 1),
-
-    fn exampleMemRead(self: *Self, address: u16) u8 {
-        return self.example_mem[address];
-    }
-
-    fn exampleMemWrite(self: *Self, address: u16, value: u8) void {
-        self.example_mem[address] = value;
-    }
-
-    pub fn busCallback(self: *Self) BusCallback {
-        return BusCallback.init(self, exampleMemRead, exampleMemWrite);
-    }
-};
+const WorkRam = @import("./work_ram.zig").WorkRam;
 
 const TestEnv = struct {
     const Self = @This();
@@ -38,8 +21,7 @@ const TestEnv = struct {
             .cpu = undefined
         };
 
-        test_env.bus = Bus.init();
-        test_env.bus.set_callbacks(bus_callback, 0, ((1 << 16) - 1));
+        test_env.bus = Bus.init(bus_callback);
         test_env.cpu = CPU.init(&(test_env.bus));
 
         return test_env;
@@ -53,11 +35,11 @@ fn write_next(data: []const u8, test_env: *TestEnv) void {
 }
 
 test "ADC" {
-    var test_memory = TestMemory{};
+    var test_memory = WorkRam(0x4000){};
     var bus_callback = test_memory.busCallback();
     var test_env = TestEnv.init(&bus_callback);
 
-    test_env.cpu.pc = 0x8000;
+    test_env.cpu.pc = 0x2000;
 
     // Immediate
     test_env.cpu.a = 3;
