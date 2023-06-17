@@ -37,7 +37,7 @@ pub const Snake = struct {
         fn read(self: *Self, address: u16) u8 {
             _ = address;
             _ = self;
-            return rand.random().int(u8) >> 4;
+            return rand.random().int(u8);
         }
 
         fn write(self: *Self, adress: u16, value: u8) void {
@@ -86,7 +86,7 @@ pub const Snake = struct {
         }
 
         fn write(self: *Self, address: u16, value: u8) void {
-            var color = switch (value) {
+            var color = switch (value & 0xF) {
                 0  => [_]u8{0x0, 0x0, 0x0},
                 1  => [_]u8{0xFF, 0xFF, 0xFF},
                 2, 9  => [_]u8{0x80, 0x80, 0x80},
