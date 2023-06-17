@@ -20,7 +20,21 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     b.installArtifact(exe);
 
-    // const run_step = b.step("run", "Run ZigNES");
+    const snake_exe = b.addExecutable(.{
+        .name = "6502_snake_test",
+        .root_source_file = .{ .path = "src/snake.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    snake_exe.addIncludePath(sdl_path ++ "include");
+    snake_exe.addLibraryPath(sdl_path ++ "lib\\x64");
+    b.installBinFile(sdl_path ++ "lib\\x64\\SDL2.dll", "SDL2.dll");
+    snake_exe.linkSystemLibrary("sdl2");
+    snake_exe.linkLibC();
+    b.installArtifact(snake_exe);
+
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {

@@ -51,7 +51,6 @@ pub fn main() !void {
         32
     );
 
-
     mainloop: while (true) {
         var sdl_event: c.SDL_Event = undefined;
         while (c.SDL_PollEvent(&sdl_event) != 0) {
