@@ -275,9 +275,6 @@ pub const CPU = struct {
             value: u8 = 0
         };
 
-        cpu_execute_log.debug("\npc: {X} Opcode: {X} Mnemonic: {} Addressing mode: {}\n", 
-            .{self.pc, inst.raw, curr_instruction.mnemonic, curr_instruction.addressing_mode});
-
         const operand: Operand = switch(curr_instruction.addressing_mode) {
             .accumulator => .{.value = self.a},
             .absolute => blk: {

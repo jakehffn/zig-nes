@@ -86,8 +86,6 @@ pub fn main() !void {
             c.SDL_RenderPresent(renderer);
 
             std.time.sleep(std.time.ns_per_ms * 10);
-
-            std.debug.print("low: {X} high: {X}\n", .{bus.read_byte(0x10), bus.read_byte(0x11)});
         }
     }
 }
