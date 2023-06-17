@@ -57,8 +57,6 @@ test "ADC" {
     var bus_callback = test_memory.busCallback();
     var test_env = TestEnv.init(&bus_callback);
 
-    std.debug.print("\nxxx {} {}\n\n", CPU.getInstruction(.{.raw = 0x4C}));
-
     test_env.cpu.pc = 0x8000;
 
     // Immediate
