@@ -1,4 +1,5 @@
-const BusCallback = @import("./bus.zig").Bus.BusCallback;
+const Bus = @import("./bus.zig").Bus;
+const BusCallback = Bus.BusCallback;
 
 pub fn WorkRam(comptime N: usize) type {
     return struct {
@@ -6,17 +7,19 @@ pub fn WorkRam(comptime N: usize) type {
 
         ram: [N]u8 = [_]u8{0} ** N,
 
-        fn read_byte(self: *Self, address: u16) u8 {
+        fn read_byte(self: *Self, bus: *Bus, address: u16) u8 {
+            _ = bus;
             return self.ram[address];
         }
 
-        fn write_byte(self: *Self, address: u16, value: u8) void {
+        fn write_byte(self: *Self, bus: *Bus, address: u16, value: u8) void {
+            _ = bus;
             self.ram[address] = value;
         }
 
         pub fn write_bytes(self: *Self, bytes: []u8, base_address: u16) void {
             for (bytes, 0..) |byte, i| {
-                self.write_byte(base_address + @truncate(u16, i), byte);
+                self.ram[base_address + @truncate(u16, i)] = byte;
             }
         }
 

@@ -41,7 +41,8 @@ pub fn main() !void {
     var renderer = c.SDL_CreateRenderer(window, 0, c.SDL_RENDERER_PRESENTVSYNC);
     defer c.SDL_DestroyRenderer(renderer);
 
-    _ = c.SDL_RenderSetScale(renderer, 10.0, 10.0);
+    const scale = 4;
+    _ = c.SDL_RenderSetScale(renderer, scale, scale);
 
     var texture = c.SDL_CreateTexture(
         renderer, 

@@ -39,16 +39,18 @@ pub const Snake = struct {
 
         var rand = Rand.init(0);
 
-        fn read(self: *Self, address: u16) u8 {
-            _ = address;
+        fn read(self: *Self, bus: *Bus, address: u16) u8 {
             _ = self;
+            _ = bus;
+            _ = address;
             return rand.random().int(u8);
         }
 
-        fn write(self: *Self, adress: u16, value: u8) void {
-            _ = value;
-            _ = adress;
+        fn write(self: *Self, bus: *Bus, adress: u16, value: u8) void {
             _ = self;
+            _ = bus;
+            _ = adress;
+            _ = value;
         }
 
         pub fn busCallback(self: *Self) BusCallback {
@@ -61,12 +63,14 @@ pub const Snake = struct {
 
         last_input: u8 = 0,
 
-        fn read(self: *Self, address: u16) u8 {
+        fn read(self: *Self, bus: *Bus, address: u16) u8 {
+            _ = bus;
             _ = address;
             return self.last_input; 
         }
 
-        fn write(self: *Self, address: u16, value: u8) void {
+        fn write(self: *Self, bus: *Bus, address: u16, value: u8) void {
+            _ = bus;
             _ = address;
             self.last_input = value;
         }
@@ -86,11 +90,13 @@ pub const Snake = struct {
         screen_bytes: [0x400*3]u8 = [_]u8{0} ** (0x400*3),
         has_update_since_read: bool = false,
 
-        fn read(self: *Self, address: u16) u8 {
+        fn read(self: *Self, bus: *Bus, address: u16) u8 {
+            _ = bus;
             return self.screen_bytes[address*3];
         }
 
-        fn write(self: *Self, address: u16, value: u8) void {
+        fn write(self: *Self, bus: *Bus, address: u16, value: u8) void {
+            _ = bus;
             var color = switch (value & 0xF) {
                 0  => [_]u8{0x0, 0x0, 0x0},
                 1  => [_]u8{0xFF, 0xFF, 0xFF},

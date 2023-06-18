@@ -12,10 +12,10 @@ pub const Bus = struct {
         readCallbackFn: ReadCallback,
         writeCallbackFn: WriteCallback,
 
-        pub const ReadCallback = *const fn (*anyopaque, u16) u8;
-        pub const WriteCallback = *const fn (*anyopaque, u16, u8) void;
+        pub const ReadCallback = *const fn (*anyopaque, *Bus, u16) u8;
+        pub const WriteCallback = *const fn (*anyopaque, *Bus, u16, u8) void;
 
-        pub fn init(ptr: anytype, comptime read_callback: fn (ptr: @TypeOf(ptr), address: u16) u8, comptime write_callback: fn (ptr: @TypeOf(ptr), address: u16, data: u8) void) Self {
+        pub fn init(ptr: anytype, comptime read_callback: fn (ptr: @TypeOf(ptr), bus: *Bus, address: u16) u8, comptime write_callback: fn (ptr: @TypeOf(ptr), bus: *Bus, address: u16, data: u8) void) Self {
             const Ptr = @TypeOf(ptr);
             const ptr_info = @typeInfo(Ptr);
 
@@ -24,16 +24,16 @@ pub const Bus = struct {
             if (@typeInfo(ptr_info.Pointer.child) != .Struct) @compileError("ptr must be a pointer to a struct");
 
             const gen = struct {
-                fn readCallback(pointer: *anyopaque, address: u16) u8 {
+                fn readCallback(pointer: *anyopaque, bus: *Bus, address: u16) u8 {
                     const alignment = @typeInfo(Ptr).Pointer.alignment;
                     const self = @ptrCast(Ptr, if (alignment >= 1) @alignCast(alignment, pointer) else pointer);
-                    return @call(.always_inline, read_callback, .{self, address});
+                    return @call(.always_inline, read_callback, .{self, bus, address});
                 }
 
-                fn writeCallback(pointer: *anyopaque, address: u16, value: u8) void {
+                fn writeCallback(pointer: *anyopaque, bus: *Bus, address: u16, value: u8) void {
                     const alignment = @typeInfo(Ptr).Pointer.alignment;
                     const self = @ptrCast(Ptr, if (alignment >= 1) @alignCast(alignment, pointer) else pointer);
-                    @call(.always_inline, write_callback, .{self, address, value});
+                    @call(.always_inline, write_callback, .{self, bus, address, value});
                 }
             };
 
@@ -44,12 +44,12 @@ pub const Bus = struct {
             };
         }
 
-        pub inline fn readCallback(self: Self, address: u16) u8 {
-            return self.readCallbackFn(self.ptr, address - self.address_offset);
+        pub inline fn readCallback(self: Self, bus: *Bus, address: u16) u8 {
+            return self.readCallbackFn(self.ptr, bus, address - self.address_offset);
         }
 
-        pub inline fn writeCallback(self: Self, address: u16, value: u8) void {
-            self.writeCallbackFn(self.ptr, address - self.address_offset, value);
+        pub inline fn writeCallback(self: Self, bus: *Bus, address: u16, value: u8) void {
+            self.writeCallbackFn(self.ptr, bus, address - self.address_offset, value);
         }
     };
 
@@ -61,9 +61,9 @@ pub const Bus = struct {
         };
     }
 
-    pub fn read_byte(self: Bus, address: u16) u8 {
+    pub fn read_byte(self: *Bus, address: u16) u8 {
         if (self.bus_callback[address]) |bc| {
-            return bc.readCallback(address); 
+            return bc.readCallback(self, address); 
         } else {
             panic("Bus::Undefined read: No bus callbacks at address {X}", .{address});
         }
@@ -71,7 +71,7 @@ pub const Bus = struct {
 
     pub fn write_byte(self: *Bus, address: u16, value: u8) void {
         if (self.bus_callback[address]) |bc| {
-            bc.writeCallback(address, value);
+            bc.writeCallback(self, address, value);
         } else {
             panic("Bus::Undefined write: No bus callbacks at address {X}", .{address});
         }
