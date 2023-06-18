@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 const CPU = @import("./cpu.zig").CPU;
 const Bus = @import("./bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
-const WorkRam = @import("./work_ram.zig").WorkRam;
+const Ram = @import("./ram.zig").Ram;
 
 const TestEnv = struct {
     const Self = @This();
@@ -40,7 +40,7 @@ const TestEnv = struct {
     }
 
     pub fn test_with_env(comptime ram_size: usize, init_pc: u16, testFn: *const fn (*TestEnv) anyerror!void) !void {
-        var test_memory = WorkRam(ram_size){};
+        var test_memory = Ram(ram_size){};
         var bus_callback = test_memory.busCallback();
         var test_env = TestEnv.init(&bus_callback);
 

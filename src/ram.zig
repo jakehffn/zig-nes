@@ -1,7 +1,7 @@
 const Bus = @import("./bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
 
-pub fn WorkRam(comptime N: usize) type {
+pub fn Ram(comptime N: usize) type {
     return struct {
         const Self = @This();
 

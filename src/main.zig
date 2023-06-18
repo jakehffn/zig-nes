@@ -5,7 +5,7 @@ const c = @cImport({
 
 const CPU = @import("./cpu.zig").CPU;
 const Bus = @import("./bus.zig").Bus;
-const WorkRam = @import("./work_ram.zig").WorkRam;
+const Ram = @import("./ram.zig").Ram;
 const Snake = @import("./snake.zig").Snake;
 
 pub fn main() !void {
@@ -18,9 +18,9 @@ pub fn main() !void {
     var mapped_screen = Snake.MappedScreen{};
     var screen_bc = mapped_screen.busCallback();
 
-    var work_ram = WorkRam(0x10000){};
-    work_ram.write_bytes(&Snake.game_code, 0x600);
-    var work_ram_bc = work_ram.busCallback();
+    var ram = Ram(0x10000){};
+    ram.write_bytes(&Snake.game_code, 0x600);
+    var work_ram_bc = ram.busCallback();
 
     var bus = Bus.init(&work_ram_bc);
 
