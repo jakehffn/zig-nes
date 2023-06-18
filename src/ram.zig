@@ -7,12 +7,12 @@ pub fn Ram(comptime N: usize) type {
 
         ram: [N]u8 = [_]u8{0} ** N,
 
-        fn read_byte(self: *Self, bus: *Bus, address: u16) u8 {
+        fn read(self: *Self, bus: *Bus, address: u16) u8 {
             _ = bus;
             return self.ram[address];
         }
 
-        fn write_byte(self: *Self, bus: *Bus, address: u16, value: u8) void {
+        fn write(self: *Self, bus: *Bus, address: u16, value: u8) void {
             _ = bus;
             self.ram[address] = value;
         }
@@ -24,7 +24,7 @@ pub fn Ram(comptime N: usize) type {
         }
 
         pub fn busCallback(self: *Self) BusCallback {
-            return BusCallback.init(self, read_byte, write_byte);
+            return BusCallback.init(self, read, write);
         }
     };
 }
