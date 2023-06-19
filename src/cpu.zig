@@ -112,13 +112,11 @@ pub const CPU = struct {
 
     pub const Byte = packed union {
         raw: u8,    
-        data: DecodeData
-    };
-
-    pub const DecodeData = packed struct {
-        group: u2,
-        addressing_mode: u3,
-        mnemonic: u3
+        data: packed struct {
+            group: u2,
+            addressing_mode: u3,
+            mnemonic: u3
+        }
     };
 
     // [mnemonic][group]
@@ -518,7 +516,6 @@ pub const CPU = struct {
                 const res = operand.value >> 1;
                 self.bus.write_byte(operand.address, res);
                 self.flags.C = @truncate(u1, operand.value);
-                std.debug.print("addr_mode: {} C: {}, value: {} address: {X} res: {}\n", .{curr_instruction.addressing_mode, self.flags.C, operand.value, operand.address, res});
                 self.setFlagsNZ(res);
             },
             .LSR_acc => {
