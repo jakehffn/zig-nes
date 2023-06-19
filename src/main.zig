@@ -1,4 +1,5 @@
 const std = @import("std");
+const page_allocator = std.heap.page_allocator;
 const c = @cImport({
     @cInclude("SDL.h");
 });
@@ -8,6 +9,7 @@ const Bus = @import("./bus.zig").Bus;
 
 const Ram = @import("./ram.zig").Ram;
 const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
+const Rom = @import("./rom.zig").Rom;
 
 pub fn main() !void {
     var bus = Bus.init(null);
@@ -27,6 +29,9 @@ pub fn main() !void {
     var ppu_registers_mirrors = MemoryMirror(0x2000, 0x2008){};
     var ppu_registers_mirrors_bc = ppu_registers_mirrors.busCallback();
 
+    var snake_rom = Rom.init(page_allocator);
+    try snake_rom.load("./test-files/snake.nes");
+    std.debug.print("header info:{}\n", .{snake_rom.header});
 
     bus.set_callbacks(&cpu_ram_bc, 0x0000, 0x0800);
     bus.set_callbacks(&cpu_ram_mirrors_bc, 0x0800, 0x2000);
