@@ -55,7 +55,7 @@ pub const Bus = struct {
 
     bus_callback: [1 << 16]?*BusCallback,
 
-    pub fn init(default_callback: *BusCallback) Bus {
+    pub fn init(default_callback: ?*BusCallback) Bus {
         return .{
             .bus_callback = [_]?*BusCallback{default_callback} ** (1 << 16)
         };

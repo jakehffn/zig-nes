@@ -5,31 +5,32 @@ const c = @cImport({
 
 const CPU = @import("./cpu.zig").CPU;
 const Bus = @import("./bus.zig").Bus;
+
 const Ram = @import("./ram.zig").Ram;
-const Snake = @import("./snake.zig").Snake;
+const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
 
 pub fn main() !void {
-    var mapped_random_number = Snake.MappedRandomNumber{};
-    var random_number_bc = mapped_random_number.busCallback();
-
-    var mapped_controller = Snake.MappedController{};
-    var controller_bc = mapped_controller.busCallback();
-
-    var mapped_screen = Snake.MappedScreen{};
-    var screen_bc = mapped_screen.busCallback();
-
-    var ram = Ram(0x10000){};
-    ram.write_bytes(&Snake.game_code, 0x600);
-    var work_ram_bc = ram.busCallback();
-
-    var bus = Bus.init(&work_ram_bc);
-
-    bus.set_callbacks(&random_number_bc, 0xFE, 0xFF);
-    bus.set_callbacks(&controller_bc, 0xFF, 0x100);
-    bus.set_callbacks(&screen_bc, 0x200, 0x600);
-
+    var bus = Bus.init(null);
     var cpu = CPU.init(&bus);
-    cpu.pc = 0x600;
+    // TODO: Add PPU
+    // var ppu = PPU.init(&bus);
+    
+    var cpu_ram = Ram(0x800){};
+    var cpu_ram_bc = cpu_ram.busCallback();
+
+    var cpu_ram_mirrors = MemoryMirror(0x0000, 0x0800){};
+    var cpu_ram_mirrors_bc = cpu_ram_mirrors.busCallback();
+
+    // TODO: Add PPU registers
+    // ppu_registers_bc = ppu.registers.busCallback();
+
+    var ppu_registers_mirrors = MemoryMirror(0x2000, 0x2008){};
+    var ppu_registers_mirrors_bc = ppu_registers_mirrors.busCallback();
+
+
+    bus.set_callbacks(&cpu_ram_bc, 0x0000, 0x0800);
+    bus.set_callbacks(&cpu_ram_mirrors_bc, 0x0800, 0x2000);
+    bus.set_callbacks(&ppu_registers_mirrors_bc, 0x2008, 0x4000);
 
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
@@ -48,8 +49,8 @@ pub fn main() !void {
         renderer, 
         c.SDL_PIXELFORMAT_RGB24, 
         c.SDL_TEXTUREACCESS_STREAMING, 
-        32, 
-        32
+        256, 
+        240
     );
 
     mainloop: while (true) {
@@ -59,18 +60,10 @@ pub fn main() !void {
                 c.SDL_QUIT => break :mainloop,
                 c.SDL_KEYDOWN => {
                     switch (sdl_event.key.keysym.sym) {
-                        c.SDLK_w, c.SDLK_UP => { 
-                            mapped_controller.setLastInput(0x77);
-                        },
-                        c.SDLK_a, c.SDLK_LEFT => { 
-                            mapped_controller.setLastInput(0x61);
-                        },
-                        c.SDLK_s, c.SDLK_DOWN => { 
-                            mapped_controller.setLastInput(0x73);
-                        },
-                        c.SDLK_d, c.SDLK_RIGHT => { 
-                            mapped_controller.setLastInput(0x64);
-                        },
+                        c.SDLK_w, c.SDLK_UP => {},
+                        c.SDLK_a, c.SDLK_LEFT => {},
+                        c.SDLK_s, c.SDLK_DOWN => {},
+                        c.SDLK_d, c.SDLK_RIGHT => {},
                         else => {}
                     }
                 },
@@ -80,12 +73,8 @@ pub fn main() !void {
 
         cpu.step();
 
-        if (mapped_screen.hasUpdate()) {
-            _ = c.SDL_UpdateTexture(texture, null, mapped_screen.data(), 32*3);
-            _ = c.SDL_RenderCopy(renderer, texture, null, null);
-            c.SDL_RenderPresent(renderer);
-
-            std.time.sleep(std.time.ns_per_ms * 10);
-        }
+        // _ = c.SDL_UpdateTexture(texture, null, mapped_screen.data(), 32*3);
+        _ = c.SDL_RenderCopy(renderer, texture, null, null);
+        c.SDL_RenderPresent(renderer);
     }
 }
