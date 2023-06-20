@@ -201,8 +201,6 @@ pub fn main() !void {
             _ = c.SDL_UpdateTexture(texture, null, mapped_screen.data(), 32*3);
             _ = c.SDL_RenderCopy(renderer, texture, null, null);
             c.SDL_RenderPresent(renderer);
-
-            // std.time.sleep(std.time.ns_per_ms);
         }
     }
 }
