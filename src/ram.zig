@@ -5,7 +5,7 @@ pub fn Ram(comptime N: usize) type {
     return struct {
         const Self = @This();
 
-        ram: [N]u8 = [_]u8{0} ** N,
+        ram: [N]u8,
 
         fn read(self: *Self, bus: *Bus, address: u16) u8 {
             _ = bus;

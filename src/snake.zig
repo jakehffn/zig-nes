@@ -138,7 +138,12 @@ pub fn main() !void {
 
     var mapped_screen = Snake.MappedScreen{};
 
-    var ram = Ram(0x10000){};
+    var ram = Ram(0x10000){.ram = undefined};
+
+    for (&ram.ram) |*loc| {
+        loc.* = 0;
+    }
+
     ram.write_bytes(&Snake.game_code, 0x600);
 
     var bus = Bus.init(ram.busCallback());
