@@ -133,23 +133,19 @@ pub const Snake = struct {
 
 pub fn main() !void {
     var mapped_random_number = Snake.MappedRandomNumber{};
-    var random_number_bc = mapped_random_number.busCallback();
 
     var mapped_controller = Snake.MappedController{};
-    var controller_bc = mapped_controller.busCallback();
 
     var mapped_screen = Snake.MappedScreen{};
-    var screen_bc = mapped_screen.busCallback();
 
     var ram = Ram(0x10000){};
     ram.write_bytes(&Snake.game_code, 0x600);
-    var work_ram_bc = ram.busCallback();
 
-    var bus = Bus.init(&work_ram_bc);
+    var bus = Bus.init(ram.busCallback());
 
-    bus.set_callbacks(&random_number_bc, 0xFE, 0xFF);
-    bus.set_callbacks(&controller_bc, 0xFF, 0x100);
-    bus.set_callbacks(&screen_bc, 0x200, 0x600);
+    bus.set_callbacks(mapped_random_number.busCallback(), 0xFE, 0xFF);
+    bus.set_callbacks(mapped_controller.busCallback(), 0xFF, 0x100);
+    bus.set_callbacks(mapped_screen.busCallback(), 0x200, 0x600);
 
     var cpu = CPU.init(&bus);
     cpu.pc = 0x600;
@@ -157,7 +153,6 @@ pub fn main() !void {
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
 
-    // var window = c.SDL_CreateWindow("ZigNES", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 256, 240, 0);
     var window = c.SDL_CreateWindow("6502 Snake Test", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 32*10, 32*10, 0);
     defer c.SDL_DestroyWindow(window);
 
@@ -199,7 +194,7 @@ pub fn main() !void {
                 else => {},
             }
         }
-
+        
         cpu.step();
 
         if (mapped_screen.hasUpdate()) {
@@ -207,7 +202,7 @@ pub fn main() !void {
             _ = c.SDL_RenderCopy(renderer, texture, null, null);
             c.SDL_RenderPresent(renderer);
 
-            std.time.sleep(std.time.ns_per_ms * 10);
+            // std.time.sleep(std.time.ns_per_ms);
         }
     }
 }

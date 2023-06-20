@@ -53,11 +53,11 @@ pub const Bus = struct {
         }
     };
 
-    bus_callback: [1 << 16]?*BusCallback,
+    bus_callback: [1 << 16]?BusCallback,
 
-    pub fn init(default_callback: ?*BusCallback) Bus {
+    pub fn init(default_callback: ?BusCallback) Bus {
         return .{
-            .bus_callback = [_]?*BusCallback{default_callback} ** (1 << 16)
+            .bus_callback = [_]?BusCallback{default_callback} ** (1 << 16)
         };
     }
 
@@ -77,9 +77,11 @@ pub const Bus = struct {
         }
     }
 
-    pub fn set_callbacks(self: *Bus, bus_callback: *BusCallback, start_address: u16, end_address: u16) void {
+    pub fn set_callbacks(self: *Bus, bus_callback: BusCallback, start_address: u16, end_address: u16) void {
         assert(start_address <= end_address);
-        bus_callback.address_offset = start_address;
-        @memset(self.bus_callback[start_address..end_address], bus_callback);
+
+        var bc = bus_callback;
+        bc.address_offset = start_address;
+        @memset(self.bus_callback[start_address..end_address], bc);
     }
 };

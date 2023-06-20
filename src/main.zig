@@ -18,24 +18,21 @@ pub fn main() !void {
     // var ppu = PPU.init(&bus);
     
     var cpu_ram = Ram(0x800){};
-    var cpu_ram_bc = cpu_ram.busCallback();
 
     var cpu_ram_mirrors = MemoryMirror(0x0000, 0x0800){};
-    var cpu_ram_mirrors_bc = cpu_ram_mirrors.busCallback();
 
     // TODO: Add PPU registers
     // ppu_registers_bc = ppu.registers.busCallback();
 
     var ppu_registers_mirrors = MemoryMirror(0x2000, 0x2008){};
-    var ppu_registers_mirrors_bc = ppu_registers_mirrors.busCallback();
 
     var snake_rom = Rom.init(page_allocator);
     try snake_rom.load("./test-files/snake.nes");
     std.debug.print("header info:{}\n", .{snake_rom.header});
 
-    bus.set_callbacks(&cpu_ram_bc, 0x0000, 0x0800);
-    bus.set_callbacks(&cpu_ram_mirrors_bc, 0x0800, 0x2000);
-    bus.set_callbacks(&ppu_registers_mirrors_bc, 0x2008, 0x4000);
+    bus.set_callbacks(cpu_ram.busCallback(), 0x0000, 0x0800);
+    bus.set_callbacks(cpu_ram_mirrors.busCallback(), 0x0800, 0x2000);
+    bus.set_callbacks(ppu_registers_mirrors.busCallback(), 0x2008, 0x4000);
 
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
