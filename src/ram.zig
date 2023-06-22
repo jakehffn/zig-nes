@@ -5,7 +5,17 @@ pub fn Ram(comptime N: usize) type {
     return struct {
         const Self = @This();
 
-        ram: [N]u8,
+        ram: [N]u8 = undefined,
+
+        pub fn init() Self {
+            var ram: Self = .{};
+
+            for (&ram.ram) |*loc| {
+                loc.* = 0;
+            }
+
+            return ram;
+        }
 
         fn read(self: *Self, bus: *Bus, address: u16) u8 {
             _ = bus;

@@ -53,12 +53,17 @@ pub const Bus = struct {
         }
     };
 
-    bus_callback: [1 << 16]?BusCallback,
+    bus_callback: [1 << 16]?BusCallback = undefined,
 
     pub fn init(default_callback: ?BusCallback) Bus {
-        return .{
-            .bus_callback = [_]?BusCallback{default_callback} ** (1 << 16)
-        };
+        var bus: Bus = .{};    
+
+        // Initializing with the default statically causes 20+ minute compile times
+        for (&bus.bus_callback) |*loc| {
+            loc.* = default_callback;
+        }
+
+        return bus;
     }
 
     pub fn read_byte(self: *Bus, address: u16) u8 {

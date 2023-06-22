@@ -17,12 +17,7 @@ pub fn main() !void {
     // TODO: Add PPU
     // var ppu = PPU.init(&bus);
     
-    var cpu_ram = Ram(0x800){.ram = undefined};
-
-    for (&cpu_ram.ram) |*loc| {
-        loc.* = 0;
-    }
-
+    var cpu_ram = Ram(0x800).init();
     var cpu_ram_mirrors = MemoryMirror(0x0000, 0x0800){};
 
     // TODO: Add PPU registers
