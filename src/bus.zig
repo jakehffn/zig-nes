@@ -82,7 +82,7 @@ pub const Bus = struct {
         }
     }
 
-    pub fn set_callbacks(self: *Bus, bus_callback: BusCallback, start_address: u16, end_address: u16) void {
+    pub fn set_callbacks(self: *Bus, bus_callback: BusCallback, start_address: u16, end_address: u17) void {
         assert(start_address <= end_address);
 
         var bc = bus_callback;

@@ -2,6 +2,35 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
+const Bus = @import("./bus.zig").Bus;
+const BusCallback = Bus.BusCallback;
+
+const MappedArray = struct {
+    const Self = @This();
+
+    array: ArrayList(u8),
+
+    pub fn init(allocator: Allocator) MappedArray {
+        return .{
+            .array = ArrayList(u8).init(allocator)
+        };
+    }
+
+    fn read(self: *Self, bus: *Bus, address: u16) u8 {
+        _ = bus;
+        return self.array.items[address];
+    }
+
+    fn write(self: *Self, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        self.array.items[address] = value;
+    }
+    
+    pub fn busCallback(self: *Self) BusCallback {
+        return BusCallback.init(self, read, write);
+    }
+};
+
 const MirroringType = enum {
     four_screen,
     horizontal,
@@ -24,14 +53,14 @@ pub const Rom = struct {
     const Self = @This();
 
     header: INesHeader,
-    prg_rom: ArrayList(u8),
-    chr_rom: ArrayList(u8),
+    prg_rom: MappedArray,
+    chr_rom: MappedArray,
 
     pub fn init(allocator: Allocator) Rom {
         return .{
             .header = undefined,
-            .prg_rom = ArrayList(u8).init(allocator),
-            .chr_rom = ArrayList(u8).init(allocator),
+            .prg_rom = MappedArray.init(allocator),
+            .chr_rom = MappedArray.init(allocator),
         };
     }
 
@@ -81,20 +110,18 @@ pub const Rom = struct {
             .num_prg_rom_banks = header_data.num_prg_rom_banks,
             .num_chr_rom_banks = header_data.num_chr_rom_banks
         };
-        
+
         const prg_bank_size = 16384;
-        const prg_bytes = prg_bank_size * @as(u32, header_data.num_prg_rom_banks);
+        const prg_bytes = prg_bank_size * @as(u32, self.header.num_prg_rom_banks);
         const chr_bank_size = 8192;
-        const chr_bytes = chr_bank_size *  @as(u32, header_data.num_chr_rom_banks);
+        const chr_bytes = chr_bank_size *  @as(u32, self.header.num_chr_rom_banks);
 
         const trainer_size = 512;
-        if (header_data.control_byte_1.has_trainer) {
-            in_stream.readAllArrayList(&self.prg_rom, trainer_size) catch {};
-        } else {
-            _ = try in_stream.readBytesNoEof(trainer_size);
+        if (self.header.has_trainer) {
+            try in_stream.skipBytes(trainer_size, .{});
         }
-
-        in_stream.readAllArrayList(&self.prg_rom, prg_bytes) catch {};
-        in_stream.readAllArrayList(&self.chr_rom, chr_bytes) catch {};
+        
+        in_stream.readAllArrayList(&self.prg_rom.array, prg_bytes) catch {};
+        in_stream.readAllArrayList(&self.chr_rom.array, chr_bytes) catch {};
     }
 };
