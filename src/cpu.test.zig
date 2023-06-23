@@ -9,20 +9,16 @@ const Ram = @import("./ram.zig").Ram;
 const TestEnv = struct {
     const Self = @This();
 
-    bus_callback: *BusCallback,
     bus: Bus,
-    cpu: CPU,
+    cpu: CPU(null),
 
-    pub fn init(bus_callback: *BusCallback) TestEnv {
-        
+    pub fn init(comptime ram_size: usize, ram: *Ram(ram_size)) TestEnv {
         var test_env = TestEnv{
-            .bus_callback = bus_callback,
-            .bus = undefined,
+            .bus = Bus.init(ram.busCallback()),
             .cpu = undefined
         };
 
-        test_env.bus = Bus.init(bus_callback);
-        test_env.cpu = CPU.init(&(test_env.bus));
+        test_env.cpu = CPU(null).init(&test_env.bus) catch unreachable;
 
         return test_env;
     }
@@ -41,8 +37,7 @@ const TestEnv = struct {
 
     pub fn test_with_env(comptime ram_size: usize, init_pc: u16, testFn: *const fn (*TestEnv) anyerror!void) !void {
         var test_memory = Ram(ram_size){};
-        var bus_callback = test_memory.busCallback();
-        var test_env = TestEnv.init(&bus_callback);
+        var test_env = TestEnv.init(ram_size, &test_memory);
 
         test_env.cpu.pc = init_pc;
 

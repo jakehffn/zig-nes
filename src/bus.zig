@@ -55,13 +55,17 @@ pub const Bus = struct {
 
     bus_callback: [1 << 16]?BusCallback = undefined,
 
+    /// All `BusCallback`s are set to `default_callback`
+    /// The callbacks can be overwritten later with `bus.setCallbacks()`
     pub fn init(default_callback: ?BusCallback) Bus {
         var bus: Bus = .{};    
 
         // Initializing with the default statically causes 20+ minute compile times
+        // Do this instead
         for (&bus.bus_callback) |*loc| {
             loc.* = default_callback;
         }
+        // @memset(bus.bus_callback[0..bus.bus_callback.len], default_callback);
 
         return bus;
     }

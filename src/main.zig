@@ -5,40 +5,25 @@ const c = @cImport({
 });
 
 const CPU = @import("./cpu.zig").CPU;
-const Bus = @import("./bus.zig").Bus;
+const MainBus = @import("./main_bus.zig").MainBus;
 
 const Ram = @import("./ram.zig").Ram;
 const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
 const Rom = @import("./rom.zig").Rom;
 
 pub fn main() !void {
-    var bus = Bus.init(null);
-    var cpu = try CPU("ZigNES.log").init(&bus);
+    
+    var main_bus = MainBus.init();
+    var cpu = try CPU("ZigNES.log").init(&main_bus.bus);
     defer cpu.deinit();
+
     // TODO: Add PPU
     // var ppu = PPU.init(&bus);
-    
-    var cpu_ram = Ram(0x800).init();
-    var cpu_ram_mirrors = MemoryMirror(0x0000, 0x0800){};
-
-    // TODO: Add PPU registers
-    // ppu_registers_bc = ppu.registers.busCallback();
-
-    var ppu_registers_mirrors = MemoryMirror(0x2000, 0x2008){};
 
     var snake_rom = Rom.init(page_allocator);
-    try snake_rom.load("./test-files/snake.nes");
+    try snake_rom.load("./test-files/nestest.nes");
 
-    bus.set_callbacks(cpu_ram.busCallback(), 0x0000, 0x0800);
-    bus.set_callbacks(cpu_ram_mirrors.busCallback(), 0x0800, 0x2000);
-    bus.set_callbacks(ppu_registers_mirrors.busCallback(), 0x2008, 0x4000);
-    bus.set_callbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
-
-    var prg_rom_mirrors = MemoryMirror(0x8000, 0xC000){};
-
-    if (snake_rom.prg_rom.array.items.len <= 0x4000) {
-        bus.set_callbacks(prg_rom_mirrors.busCallback(), 0xC000, 0x10000);
-    } 
+    main_bus.loadRom(&snake_rom);
 
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();

@@ -16,6 +16,10 @@ const MappedArray = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.array.deinit();
+    }
+
     fn read(self: *Self, bus: *Bus, address: u16) u8 {
         _ = bus;
         return self.array.items[address];
@@ -62,6 +66,11 @@ pub const Rom = struct {
             .prg_rom = MappedArray.init(allocator),
             .chr_rom = MappedArray.init(allocator),
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.prg_rom.deinit();
+        self.chr_rom.deinit();
     }
 
     pub fn load(self: *Self, rom_path: []const u8) !void {
