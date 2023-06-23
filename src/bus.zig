@@ -62,10 +62,7 @@ pub const Bus = struct {
 
         // Initializing with the default statically causes 20+ minute compile times
         // Do this instead
-        for (&bus.bus_callback) |*loc| {
-            loc.* = default_callback;
-        }
-        // @memset(bus.bus_callback[0..bus.bus_callback.len], default_callback);
+        @memset(bus.bus_callback[0..bus.bus_callback.len], default_callback);
 
         return bus;
     }
