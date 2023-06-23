@@ -14,7 +14,7 @@ const Rom = @import("./rom.zig").Rom;
 pub fn main() !void {
     
     var main_bus = MainBus.init();
-    var cpu = try CPU("ZigNES.log").init(&main_bus.bus);
+    var cpu = try CPU("./log/ZigNES.log").init(&main_bus.bus);
     defer cpu.deinit();
 
     // TODO: Add PPU

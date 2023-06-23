@@ -124,7 +124,7 @@ pub fn main() !void {
     bus.set_callbacks(mapped_screen.busCallback(), 0x200, 0x600);
     bus.set_callbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
 
-    var cpu = try CPU("6502_snake_test.log").init(&bus);
+    var cpu = try CPU("./log/6502_snake_test.log").init(&bus);
     defer cpu.deinit();
     cpu.pc = 0x8600;
 
