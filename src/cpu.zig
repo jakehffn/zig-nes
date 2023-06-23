@@ -1,9 +1,12 @@
 const std = @import("std");
 const cpu_execute_log = std.log.scoped(.cpu_execute);
+const mode = @import("builtin").mode;
 
 const Bus = @import("./bus.zig").Bus;
 
 pub fn CPU(comptime log_file_path: ?[]const u8) type { 
+    const debug_log_file_path = if (mode == .Debug) log_file_path else null;
+
     return struct {
         const Self = @This();
 
@@ -333,7 +336,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
             return .{
                 .bus = bus,
                 .log_file = blk: {
-                    if (log_file_path) |path| {
+                    if (debug_log_file_path) |path| {
                         break :blk try std.fs.cwd().createFile(path, .{});
                     } else {
                         break :blk undefined;
@@ -343,7 +346,9 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.log_file.close();
+            if (debug_log_file_path) |_| {
+                self.log_file.close();
+            }
         }
 
         pub fn getInstruction(inst: Byte) Instruction {
@@ -369,7 +374,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
             var curr_instruction = getInstruction(byte);
             const operand: Operand = self.getOperand(curr_instruction.addressing_mode);
             
-            if (log_file_path) |_| {
+            if (debug_log_file_path) |_| {
                 self.log_file.writer().print("{any}\n", .{StepLogData{
                     .pc = read_byte_addr,
                     .mnemonic = curr_instruction.mnemonic,
