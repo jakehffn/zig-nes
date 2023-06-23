@@ -13,7 +13,8 @@ const Rom = @import("./rom.zig").Rom;
 
 pub fn main() !void {
     var bus = Bus.init(null);
-    var cpu = CPU.init(&bus);
+    var cpu = try CPU("ZigNES.log").init(&bus);
+    defer cpu.deinit();
     // TODO: Add PPU
     // var ppu = PPU.init(&bus);
     
@@ -27,11 +28,17 @@ pub fn main() !void {
 
     var snake_rom = Rom.init(page_allocator);
     try snake_rom.load("./test-files/snake.nes");
-    std.debug.print("header info:{}\n", .{snake_rom.header});
 
     bus.set_callbacks(cpu_ram.busCallback(), 0x0000, 0x0800);
     bus.set_callbacks(cpu_ram_mirrors.busCallback(), 0x0800, 0x2000);
     bus.set_callbacks(ppu_registers_mirrors.busCallback(), 0x2008, 0x4000);
+    bus.set_callbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
+
+    var prg_rom_mirrors = MemoryMirror(0x8000, 0xC000){};
+
+    if (snake_rom.prg_rom.array.items.len <= 0x4000) {
+        bus.set_callbacks(prg_rom_mirrors.busCallback(), 0xC000, 0x10000);
+    } 
 
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
