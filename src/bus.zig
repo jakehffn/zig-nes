@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 
+const Allocator = std.mem.Allocator;
+
 pub const Bus = struct {
     pub const BusCallback = struct {
         const Self = @This();
@@ -51,43 +53,86 @@ pub const Bus = struct {
         pub inline fn writeCallback(self: Self, bus: *Bus, address: u16, value: u8) void {
             self.writeCallbackFn(self.ptr, bus, address - self.address_offset, value);
         }
+
+        /// Convenience function to generate callback function for disallowed reads
+        pub fn disallowedRead(comptime Outer: type, comptime panic_msg: []const u8) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
+            return struct {
+                fn func(self: *Outer, bus: *Bus, address: u16) u8 {
+                    _ = bus;
+                    _ = self;
+                    panic(panic_msg ++ ":${X:0>4}", .{address});
+                }
+            }.func;
+        }
+
+        /// Convenience function to generate callback function for disallowed writes
+        pub fn disallowedWrite(comptime Outer: type, comptime panic_msg: []const u8) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
+            return struct {
+                fn func(self: *Outer, bus: *Bus, address: u16, value: u8) void {
+                    _ = bus;
+                    _ = self;
+                    _ = value;
+                    panic(panic_msg ++ ":${X:0>4}", .{address});
+                }
+            }.func;
+        }
     };
 
-    bus_callback: [1 << 16]?BusCallback = undefined,
+    // Would be nice to not have the size hard-coded and to be included in the type, but
+    //  any sort of wrapper to provide a slice will require either an allocation
+    //  or a reference to memory from the outer scope.
+    //  bus_callback: [some_comptime_variable]?BusCallback = undefined, <- will require a
+    //      second init function after initialization as you can't reference the return location
+    
+    // For now, it looks cleaner to have the wasted space in the PPU bus, and avoid having to
+    //  double initialize the buses
+    bus_callbacks: []?BusCallback,
 
     /// All `BusCallback`s are set to `default_callback`
     /// The callbacks can be overwritten later with `bus.setCallbacks()`
-    pub fn init(default_callback: ?BusCallback) Bus {
-        var bus: Bus = .{};    
+    pub fn init(allocator: Allocator, address_space_size: usize, default_callback: ?BusCallback) !Bus {
+        var bus: Bus = .{
+            .bus_callbacks = try allocator.alloc(?BusCallback, address_space_size)
+        };    
 
         // Initializing with the default statically causes 20+ minute compile times
         // Do this instead
-        @memset(bus.bus_callback[0..bus.bus_callback.len], default_callback);
+        @memset(bus.bus_callbacks[0..bus.bus_callbacks.len], default_callback);
 
         return bus;
     }
 
-    pub fn read_byte(self: *Bus, address: u16) u8 {
-        if (self.bus_callback[address]) |bc| {
+    pub fn deinit(self: *Bus, allocator: Allocator) void {
+        allocator.free(self.bus_callbacks);
+    }
+
+    pub fn readByte(self: *Bus, address: u16) u8 {
+        if (self.bus_callbacks[address]) |bc| {
             return bc.readCallback(self, address); 
         } else {
             panic("Bus::Undefined read: No bus callbacks at address {X}", .{address});
         }
     }
 
-    pub fn write_byte(self: *Bus, address: u16, value: u8) void {
-        if (self.bus_callback[address]) |bc| {
+    pub fn writeByte(self: *Bus, address: u16, value: u8) void {
+        if (self.bus_callbacks[address]) |bc| {
             bc.writeCallback(self, address, value);
         } else {
             panic("Bus::Undefined write: No bus callbacks at address {X}", .{address});
         }
     }
 
-    pub fn set_callbacks(self: *Bus, bus_callback: BusCallback, start_address: u16, end_address: u17) void {
+    pub fn setCallback(self: *Bus, bus_callback: BusCallback, address: u16) void {
+        var bc = bus_callback;
+        bc.address_offset = address;
+        self.bus_callbacks[address] = bc;
+    }
+
+    pub fn setCallbacks(self: *Bus, bus_callback: BusCallback, start_address: u16, end_address: u17) void {
         assert(start_address <= end_address);
 
         var bc = bus_callback;
         bc.address_offset = start_address;
-        @memset(self.bus_callback[start_address..end_address], bc);
+        @memset(self.bus_callbacks[start_address..end_address], bc);
     }
 };

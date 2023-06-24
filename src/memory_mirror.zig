@@ -10,12 +10,12 @@ pub fn MemoryMirror(comptime mirror_start: u16, comptime mirror_end: u16) type {
         
         fn read(self: *Self, bus: *Bus, address: u16) u8 {
             _ = self;
-            return bus.read_byte(start + (address % size));
+            return bus.readByte(start + (address % size));
         }
 
         fn write(self: *Self, bus: *Bus, address: u16, value: u8) void {
             _ = self;
-            bus.write_byte(start + (address % size), value);
+            bus.writeByte(start + (address % size), value);
         }
 
         pub fn busCallback(self: *Self) BusCallback {

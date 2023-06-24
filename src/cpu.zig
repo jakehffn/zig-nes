@@ -146,7 +146,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 const read_bytes = value.cpu.pc - value.pc;
                 for (0..3) |i| {
                     if (i < read_bytes) {
-                        bytes[i] = value.cpu.bus.read_byte(value.pc + @truncate(u8, i));
+                        bytes[i] = value.cpu.bus.readByte(value.pc + @truncate(u8, i));
                         try writer.print("{X:0>2} ", .{bytes[i]});
                     } else {
                         try writer.print("   ", .{});
@@ -366,7 +366,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
         }
 
         pub fn step(self: *Self) void {
-            var byte = Byte{ .raw = self.bus.read_byte(self.pc)};
+            var byte = Byte{ .raw = self.bus.readByte(self.pc)};
             const read_byte_addr = self.pc;
 
             self.pc += 1;
@@ -399,13 +399,13 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
         } 
 
         inline fn stackPush(self: *Self, value: u8) void {
-            self.bus.write_byte(0x100 | @as(u16, self.sp), value);
+            self.bus.writeByte(0x100 | @as(u16, self.sp), value);
             self.sp -= 1;
         }
 
         inline fn stackPop(self: *Self) u8 {
             self.sp += 1;
-            return self.bus.read_byte(0x100 | @as(u16, self.sp));
+            return self.bus.readByte(0x100 | @as(u16, self.sp));
         }
 
         inline fn setFlagsNZ(self: *Self, value: u8) void {
@@ -417,30 +417,30 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
             return switch(addr_mode) {
                 .accumulator => .{.value = self.a},
                 .absolute => blk: {
-                    const addr_low: u16 = self.bus.read_byte(self.pc);
-                    const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                    const addr_low: u16 = self.bus.readByte(self.pc);
+                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
                     const addr: u16 = (addr_high << 8) | addr_low;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .absolute_x => blk: {
                     // TODO: Add cycle for page crossing
-                    const addr_low: u16 = self.bus.read_byte(self.pc);
-                    const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                    const addr_low: u16 = self.bus.readByte(self.pc);
+                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
                     const addr: u16 = ((addr_high << 8) | addr_low) + self.x;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .absolute_y => blk: {
                     // TODO: Add cycle for page crossing
-                    const addr_low: u16 = self.bus.read_byte(self.pc);
-                    const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                    const addr_low: u16 = self.bus.readByte(self.pc);
+                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
                     const addr: u16 = ((addr_high << 8) | addr_low) + self.y;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .immediate => blk: {
-                    const val = self.bus.read_byte(self.pc);
+                    const val = self.bus.readByte(self.pc);
                     self.pc += 1;
                     break :blk .{.value = val};
                 },
@@ -448,52 +448,52 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 .implied => .{},
                 .indirect => blk: {
                     // Indirect is only used by the JMP instruction, so no need to get value
-                    const addr_low: u16 = self.bus.read_byte(self.pc);
-                    const addr_high: u16 = self.bus.read_byte(self.pc + 1);
+                    const addr_low: u16 = self.bus.readByte(self.pc);
+                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
                     const addr: u16 = (addr_high << 8) | addr_low;
-                    const target_low: u16 = self.bus.read_byte(addr);
-                    const target_high: u16 = self.bus.read_byte(addr + 1);
+                    const target_low: u16 = self.bus.readByte(addr);
+                    const target_high: u16 = self.bus.readByte(addr + 1);
                     const target: u16 = (target_high << 8) | target_low; 
                     break :blk .{.address = target};
                 },
                 .indirect_x => blk: {
-                    const indirect_addr = self.bus.read_byte(self.pc) +% self.x;
+                    const indirect_addr = self.bus.readByte(self.pc) +% self.x;
                     self.pc += 1;
-                    const addr_low: u16 = self.bus.read_byte(indirect_addr);
-                    const addr_high: u16 = self.bus.read_byte(indirect_addr +% 1);
+                    const addr_low: u16 = self.bus.readByte(indirect_addr);
+                    const addr_high: u16 = self.bus.readByte(indirect_addr +% 1);
                     const addr: u16 = (addr_high << 8) | addr_low;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .indirect_y => blk: {
                     // TODO: Add cycle for page crossing
-                    const indirect_addr = self.bus.read_byte(self.pc); 
+                    const indirect_addr = self.bus.readByte(self.pc); 
                     self.pc += 1;
-                    const addr_low: u16 = self.bus.read_byte(indirect_addr);
-                    const addr_high: u16 = self.bus.read_byte(indirect_addr +% 1);
+                    const addr_low: u16 = self.bus.readByte(indirect_addr);
+                    const addr_high: u16 = self.bus.readByte(indirect_addr +% 1);
                     const addr: u16 = ((addr_high << 8) | addr_low) +% @as(u16, self.y);
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .relative => blk: {
                     // Relative is only used by the branch instructions, so no need to get value
-                    const addr = @bitCast(u16, @bitCast(i8, self.bus.read_byte(self.pc)) + @bitCast(i16, self.pc) + 1);
+                    const addr = @bitCast(u16, @bitCast(i8, self.bus.readByte(self.pc)) + @bitCast(i16, self.pc) + 1);
                     self.pc += 1;
                     break :blk .{.address = addr};
                 },
                 .zero_page => blk: { 
-                    const addr = self.bus.read_byte(self.pc);
+                    const addr = self.bus.readByte(self.pc);
                     self.pc += 1;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .zero_page_x => blk: { 
-                    const addr = self.bus.read_byte(self.pc) + self.x;
+                    const addr = self.bus.readByte(self.pc) + self.x;
                     self.pc += 1;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .zero_page_y => blk: {
-                    const addr = self.bus.read_byte(self.pc) + self.y;
+                    const addr = self.bus.readByte(self.pc) + self.y;
                     self.pc += 1;
-                    break :blk .{.address = addr, .value = self.bus.read_byte(addr)};
+                    break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 }
             };
         }
@@ -515,7 +515,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 },
                 .ASL => {
                     const res = operand.value << 1;
-                    self.bus.write_byte(operand.address, res);
+                    self.bus.writeByte(operand.address, res);
                     self.flags.C = @truncate(u1, operand.value >> 7);
                     self.setFlagsNZ(res);
                 },
@@ -565,8 +565,8 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                     self.stackPush(@truncate(u8, self.pc >> 8));
                     self.stackPush(@truncate(u8, self.pc));
                     self.stackPush(@bitCast(u8, self.flags));
-                    const addr_low: u16 = self.bus.read_byte(0xFFFE);
-                    const addr_high: u16 = self.bus.read_byte(0xFFFF);
+                    const addr_low: u16 = self.bus.readByte(0xFFFE);
+                    const addr_high: u16 = self.bus.readByte(0xFFFF);
                     self.flags.B = 1;
                     self.pc = (addr_high << 8) | addr_low;
                 },
@@ -609,7 +609,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 },
                 .DEC => {
                     const res = operand.value -% 1;
-                    self.bus.write_byte(operand.address, res);
+                    self.bus.writeByte(operand.address, res);
                     self.setFlagsNZ(res);
                 },
                 .DEX => {
@@ -627,7 +627,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 },
                 .INC => {
                     const res = operand.value +% 1;
-                    self.bus.write_byte(operand.address, res);
+                    self.bus.writeByte(operand.address, res);
                     self.setFlagsNZ(res);
                 },
                 .INX => {
@@ -660,7 +660,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 },
                 .LSR => { 
                     const res = operand.value >> 1;
-                    self.bus.write_byte(operand.address, res);
+                    self.bus.writeByte(operand.address, res);
                     self.flags.C = @truncate(u1, operand.value);
                     self.setFlagsNZ(res);
                 },
@@ -691,7 +691,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 },
                 .ROL => {
                     const res = (operand.value << 1) | self.flags.C;
-                    self.bus.write_byte(operand.address, res);
+                    self.bus.writeByte(operand.address, res);
                     self.flags.C = @truncate(u1, operand.value >> 7);
                     self.setFlagsNZ(res);
                 },
@@ -703,7 +703,7 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                 },
                 .ROR => {
                     const res = (operand.value >> 1) | (@as(u8, self.flags.C) << 7);
-                    self.bus.write_byte(operand.address, res);
+                    self.bus.writeByte(operand.address, res);
                     self.flags.C = @truncate(u1, operand.value);
                     self.setFlagsNZ(res);
                 },
@@ -743,13 +743,13 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
                     self.flags.I = 1;
                 },
                 .STA => {
-                    self.bus.write_byte(operand.address, self.a);
+                    self.bus.writeByte(operand.address, self.a);
                 },
                 .STX => {
-                    self.bus.write_byte(operand.address, self.x);
+                    self.bus.writeByte(operand.address, self.x);
                 },
                 .STY => {
-                    self.bus.write_byte(operand.address, self.y);
+                    self.bus.writeByte(operand.address, self.y);
                 },
                 .TAX => {
                     self.x = self.a;

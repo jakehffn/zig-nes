@@ -117,12 +117,12 @@ pub fn main() !void {
     var snake_rom = Rom.init(page_allocator);
     try snake_rom.load("./test-files/snake.nes");
 
-    var bus = Bus.init(ram.busCallback());
+    var bus = try Bus.init(page_allocator, 0x10000, ram.busCallback());
 
-    bus.set_callbacks(mapped_random_number.busCallback(), 0xFE, 0xFF);
-    bus.set_callbacks(mapped_controller.busCallback(), 0xFF, 0x100);
-    bus.set_callbacks(mapped_screen.busCallback(), 0x200, 0x600);
-    bus.set_callbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
+    bus.setCallbacks(mapped_random_number.busCallback(), 0xFE, 0xFF);
+    bus.setCallbacks(mapped_controller.busCallback(), 0xFF, 0x100);
+    bus.setCallbacks(mapped_screen.busCallback(), 0x200, 0x600);
+    bus.setCallbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
 
     var cpu = try CPU("./log/6502_snake_test.log").init(&bus);
     defer cpu.deinit();

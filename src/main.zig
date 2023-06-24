@@ -4,8 +4,11 @@ const c = @cImport({
     @cInclude("SDL.h");
 });
 
-const CPU = @import("./cpu.zig").CPU;
 const MainBus = @import("./main_bus.zig").MainBus;
+const CPU = @import("./cpu.zig").CPU;
+
+const PPUBus = @import("./ppu_bus.zig").PPUBus;
+const PPU = @import("./ppu.zig").PPU;
 
 const Ram = @import("./ram.zig").Ram;
 const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
@@ -13,12 +16,15 @@ const Rom = @import("./rom.zig").Rom;
 
 pub fn main() !void {
     
-    var main_bus = MainBus.init();
+    var main_bus = try MainBus.init(page_allocator);
+    defer main_bus.deinit(page_allocator);
     var cpu = try CPU("./log/ZigNES.log").init(&main_bus.bus);
     defer cpu.deinit();
 
-    // TODO: Add PPU
-    // var ppu = PPU.init(&bus);
+    var ppu_bus = try PPUBus.init(page_allocator);
+    defer ppu_bus.deinit(page_allocator);
+    var ppu = PPU.init(&ppu_bus.bus);
+    main_bus.bus.setCallback(ppu.address_register.busCallback(), 0);
 
     var snake_rom = Rom.init(page_allocator);
     try snake_rom.load("./test-files/nestest.nes");
