@@ -78,14 +78,6 @@ pub const Bus = struct {
         }
     };
 
-    // Would be nice to not have the size hard-coded and to be included in the type, but
-    //  any sort of wrapper to provide a slice will require either an allocation
-    //  or a reference to memory from the outer scope.
-    //  bus_callback: [some_comptime_variable]?BusCallback = undefined, <- will require a
-    //      second init function after initialization as you can't reference the return location
-    
-    // For now, it looks cleaner to have the wasted space in the PPU bus, and avoid having to
-    //  double initialize the buses
     bus_callbacks: []?BusCallback,
 
     /// All `BusCallback`s are set to `default_callback`
