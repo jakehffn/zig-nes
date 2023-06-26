@@ -5,26 +5,26 @@ const c = @cImport({
 });
 
 const MainBus = @import("./main_bus.zig").MainBus;
-const CPU = @import("./cpu.zig").CPU;
+const Cpu = @import("./cpu.zig").Cpu;
 
-const PPUBus = @import("./ppu_bus.zig").PPUBus;
-const PPU = @import("./ppu.zig").PPU;
+const PpuBus = @import("./ppu_bus.zig").PpuBus;
+const Ppu = @import("./ppu.zig").Ppu;
 
 const Ram = @import("./ram.zig").Ram;
 const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
 const Rom = @import("./rom.zig").Rom;
 
 pub fn main() !void {
-    
-    var main_bus = try MainBus.init(page_allocator);
+    var ppu_bus = try PpuBus.init(page_allocator);
+    defer ppu_bus.deinit(page_allocator);
+    var ppu = Ppu.init(&ppu_bus);
+
+    var main_bus = try MainBus.init(page_allocator, &ppu);
     defer main_bus.deinit(page_allocator);
-    var cpu = try CPU("./log/ZigNES.log").init(&main_bus.bus);
+    var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
     defer cpu.deinit();
 
-    var ppu_bus = try PPUBus.init(page_allocator);
-    defer ppu_bus.deinit(page_allocator);
-    var ppu = PPU.init(&ppu_bus.bus);
-    main_bus.bus.setCallback(ppu.address_register.busCallback(), 0);
+    ppu.setMainBus(&main_bus);
 
     var snake_rom = Rom.init(page_allocator);
     try snake_rom.load("./test-files/nestest.nes");
@@ -34,8 +34,7 @@ pub fn main() !void {
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
 
-    // var window = c.SDL_CreateWindow("ZigNES", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 256, 240, 0);
-    var window = c.SDL_CreateWindow("ZigNES", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 32*10, 32*10, 0);
+    var window = c.SDL_CreateWindow("ZigNES", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 256, 240, 0);
     defer c.SDL_DestroyWindow(window);
 
     var renderer = c.SDL_CreateRenderer(window, 0, c.SDL_RENDERER_PRESENTVSYNC);

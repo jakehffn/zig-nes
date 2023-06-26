@@ -3,8 +3,9 @@ const cpu_execute_log = std.log.scoped(.cpu_execute);
 const mode = @import("builtin").mode;
 
 const Bus = @import("./bus.zig").Bus;
+const MainBus = @import("./main_bus.zig").MainBus;
 
-pub fn CPU(comptime log_file_path: ?[]const u8) type { 
+pub fn Cpu(comptime log_file_path: ?[]const u8) type { 
     const debug_log_file_path = if (mode == .Debug) log_file_path else null;
 
     return struct {
@@ -20,6 +21,13 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
         total_cycles: u32 = 0,
         log_file: std.fs.File,
 
+        /// CPU status register layout
+        /// 
+        /// In the NES, the D (decimal mode) flag has no effect
+        /// 
+        /// Bits 5 and 4 don't represent state, but how the value was pushed to the stack
+        /// Bit 5 should always be set, but bit 4, when not set, indicates that the value
+        /// was pushed to the stack while processing an interrupt.
         const Flags = packed struct {
             N: u1 = 0, // Negative
             V: u1 = 0, // Overflow
@@ -332,7 +340,20 @@ pub fn CPU(comptime log_file_path: ?[]const u8) type {
             2, 5, 0, 0, 0, 4, 6, 0, 2, 4, 0, 0, 0, 4, 7, 0,
         };
 
-        pub fn init(bus: *Bus) !Self {
+        pub fn init(main_bus: *MainBus) !Self {
+            return .{
+                .bus = &main_bus.bus,
+                .log_file = blk: {
+                    if (debug_log_file_path) |path| {
+                        break :blk try std.fs.cwd().createFile(path, .{});
+                    } else {
+                        break :blk undefined;
+                    }
+                }
+            };
+        }
+
+        pub fn initWithTestBus(bus: *Bus) !Self {
             return .{
                 .bus = bus,
                 .log_file = blk: {

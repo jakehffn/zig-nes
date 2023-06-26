@@ -55,24 +55,31 @@ pub const Bus = struct {
         }
 
         /// Convenience function to generate callback function for disallowed reads
-        pub fn disallowedRead(comptime Outer: type, comptime panic_msg: []const u8) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
+        pub fn disallowedRead(comptime Outer: type, comptime panic_msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
             return struct {
                 fn func(self: *Outer, bus: *Bus, address: u16) u8 {
                     _ = bus;
                     _ = self;
-                    panic(panic_msg ++ ":${X:0>4}", .{address});
+                    if (log_params) {
+                        panic(panic_msg ++ "\n\t{address:${X:0>4}}", .{address});
+                    } else {
+                        panic(panic_msg, .{});
+                    }
                 }
             }.func;
         }
 
         /// Convenience function to generate callback function for disallowed writes
-        pub fn disallowedWrite(comptime Outer: type, comptime panic_msg: []const u8) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
+        pub fn disallowedWrite(comptime Outer: type, comptime panic_msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
             return struct {
                 fn func(self: *Outer, bus: *Bus, address: u16, value: u8) void {
                     _ = bus;
                     _ = self;
-                    _ = value;
-                    panic(panic_msg ++ ":${X:0>4}", .{address});
+                    if (log_params) {
+                        panic(panic_msg ++ "\n\taddress:${X:0>4} = {X:0>2}", .{address, value});
+                    } else {
+                        panic(panic_msg, .{});
+                    }
                 }
             }.func;
         }

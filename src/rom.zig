@@ -35,7 +35,7 @@ const MappedArray = struct {
     }
 };
 
-const MirroringType = enum {
+pub const MirroringType = enum {
     four_screen,
     horizontal,
     vertical

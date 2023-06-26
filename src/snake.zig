@@ -5,7 +5,7 @@ const c = @cImport({
     @cInclude("SDL.h");
 });
 
-const CPU = @import("./cpu.zig").CPU;
+const Cpu = @import("./cpu.zig").Cpu;
 const Bus = @import("./bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
 const Ram = @import("./ram.zig").Ram;
@@ -124,7 +124,7 @@ pub fn main() !void {
     bus.setCallbacks(mapped_screen.busCallback(), 0x200, 0x600);
     bus.setCallbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
 
-    var cpu = try CPU("./log/6502_snake_test.log").init(&bus);
+    var cpu = try Cpu("./log/6502_snake_test.log").initWithTestBus(&bus);
     defer cpu.deinit();
     cpu.pc = 0x8600;
 
