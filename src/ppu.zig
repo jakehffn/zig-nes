@@ -11,6 +11,8 @@ pub const Ppu = struct {
 
     bus: *Bus,
     main_bus: *Bus,
+    /// Object attribute memory
+    oam: [256]u8,
 
     // In CPU, mapped to:
     // 0x2000
@@ -77,7 +79,7 @@ pub const Ppu = struct {
     // 0x2003
     oam_address_register: struct {
         const OamAddressRegister = @This();
-        // TODO: Address should be set to 9 during each of ticks 257-320 of the pre-render and visible scanlines
+        // TODO: Address should be set to 0 during each of ticks 257-320 of the pre-render and visible scanlines
         // https://www.nesdev.org/wiki/PPU_registers#OAMADDR
         address: u8 = 0,
 
@@ -99,21 +101,21 @@ pub const Ppu = struct {
     oam_data_register: struct {
         const OamDataRegister = @This();
 
-        // TODO: Implement this function
         fn read(ppu: *Ppu, bus: *Bus, address: u16) u8 {
-            _ = address;
             _ = bus;
-            _ = ppu;
 
-            return 0;
+            return ppu.oam[address];
         }
 
-        // TODO: Implement this function
         fn write(ppu: *Ppu, bus: *Bus, address: u16, value: u8) void {
-            _ = value;
             _ = address;
             _ = bus;
-            _ = ppu;
+            if (ppu.status_register.flags.V == 0) {
+                return;
+            }
+            const addr = ppu.oam_address_register.address;
+            ppu.oam_address_register.address +%= 1;
+            ppu.oam[addr] = value;
         }
 
         pub fn busCallback(self: *OamDataRegister) BusCallback {
@@ -128,27 +130,27 @@ pub const Ppu = struct {
     scroll_register: struct {
         const ScrollRegister = @This();
 
-        // TODO: Implement this function
-        fn read(ppu: *Ppu, bus: *Bus, address: u16) u8 {
-            _ = address;
-            _ = bus;
-            _ = ppu;
+        offsets: struct {
+            horizontal: u8 = 0,
+            vertical: u8 = 0
+        } = .{},
 
-            return 0;
-        }
-
-        // TODO: Implement this function
         fn write(ppu: *Ppu, bus: *Bus, address: u16, value: u8) void {
-            _ = value;
             _ = address;
             _ = bus;
-            _ = ppu;
+            if (ppu.address_register.high_latch) {
+                ppu.scroll_register.offsets.horizontal = value;
+            } else {
+                ppu.scroll_register.offsets.vertical = value;
+            } 
+            ppu.address_register.high_latch = false;
+
         }
 
         pub fn busCallback(self: *ScrollRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "scroll_register", self), 
-                ScrollRegister.read,
+                BusCallback.disallowedRead(Self, "Cannot read from PPU scroll register", false),
                 ScrollRegister.write
             );
         }
@@ -237,27 +239,19 @@ pub const Ppu = struct {
     oam_dma_register: struct {
         const OamDmaRegister = @This();
 
-        // TODO: Implement this function
-        fn read(ppu: *Ppu, bus: *Bus, address: u16) u8 {
-            _ = address;
-            _ = bus;
-            _ = ppu;
-
-            return 0;
-        }
-
-        // TODO: Implement this function
         fn write(ppu: *Ppu, bus: *Bus, address: u16, value: u8) void {
-            _ = value;
             _ = address;
             _ = bus;
-            _ = ppu;
+            const base_address = @as(u16, value) << 8;
+            for (&ppu.oam, base_address..) |*entry, addr| {
+                entry.* = ppu.main_bus.readByte(@truncate(u16, addr));
+            }
         }
 
         pub fn busCallback(self: *OamDmaRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "oam_dma_register", self), 
-                OamDmaRegister.read,
+                BusCallback.disallowedRead(Self, "Cannot read from PPU OAM DMA register", false),
                 OamDmaRegister.write
             );
         }
@@ -359,10 +353,15 @@ pub const Ppu = struct {
     };
 
     pub fn init(ppu_bus: *PpuBus) Ppu {
-        return .{
+        var ppu: Ppu = .{
             .bus = &ppu_bus.bus,
-            .main_bus = undefined
+            .main_bus = undefined,
+            .oam = undefined
         };
+
+        @memset(ppu.oam[0..ppu.oam.len], 0);
+
+        return ppu;
     }
 
     pub fn setMainBus(self: *Self, main_bus: *MainBus) void {
