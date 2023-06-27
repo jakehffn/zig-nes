@@ -55,30 +55,31 @@ pub const Bus = struct {
         }
 
         /// Convenience function to generate callback function for disallowed reads
-        pub fn disallowedRead(comptime Outer: type, comptime panic_msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
+        pub fn noRead(comptime Outer: type, comptime msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
             return struct {
                 fn func(self: *Outer, bus: *Bus, address: u16) u8 {
                     _ = bus;
                     _ = self;
                     if (log_params) {
-                        panic(panic_msg ++ "\n\t{address:${X:0>4}}", .{address});
+                        std.log.info(msg ++ "\n\t{address:${X:0>4}}", .{address});
                     } else {
-                        panic(panic_msg, .{});
+                        std.log.info(msg, .{});
                     }
+                    return 0;
                 }
             }.func;
         }
 
         /// Convenience function to generate callback function for disallowed writes
-        pub fn disallowedWrite(comptime Outer: type, comptime panic_msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
+        pub fn noWrite(comptime Outer: type, comptime msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
             return struct {
                 fn func(self: *Outer, bus: *Bus, address: u16, value: u8) void {
                     _ = bus;
                     _ = self;
                     if (log_params) {
-                        panic(panic_msg ++ "\n\taddress:${X:0>4} = {X:0>2}", .{address, value});
+                        std.log.info(msg ++ "\n\taddress:${X:0>4} = {X:0>2}", .{address, value});
                     } else {
-                        panic(panic_msg, .{});
+                        std.log.info(msg, .{});
                     }
                 }
             }.func;
@@ -109,7 +110,8 @@ pub const Bus = struct {
         if (self.bus_callbacks[address]) |bc| {
             return bc.readCallback(self, address); 
         } else {
-            panic("Bus::Undefined read: No bus callbacks at address {X}", .{address});
+            std.log.info("Bus::Undefined read: No bus callbacks at address {X}", .{address});
+            return 0;
         }
     }
 
@@ -117,7 +119,7 @@ pub const Bus = struct {
         if (self.bus_callbacks[address]) |bc| {
             bc.writeCallback(self, address, value);
         } else {
-            panic("Bus::Undefined write: No bus callbacks at address {X}", .{address});
+            std.log.info("Bus::Undefined write: No bus callbacks at address {X}", .{address});
         }
     }
 
