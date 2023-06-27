@@ -19,26 +19,30 @@ pub const PpuBus = struct {
 
     pub fn init(allocator: Allocator) !PpuBus {
 
-        var ppu_bus = PpuBus {
+        return .{
             .bus = try Bus.init(allocator, 0x4000, null),
             .ram = MirroringRam.init(),
             .palette_ram_indices = Ram(0x20).init()
         };
+    }
 
-        ppu_bus.bus.setCallbacks(
-            ppu_bus.ppu_ram_mirrors.busCallback(), 
+    pub fn setCallbacks(self: *Self) void {
+        self.bus.setCallbacks(
+            self.ram.busCallback(), 
+            0x2000, 0x3000
+        );
+        self.bus.setCallbacks(
+            self.ppu_ram_mirrors.busCallback(), 
             0x3000, 0x3F00
         );
-        ppu_bus.bus.setCallbacks(
-            ppu_bus.palette_ram_indices.busCallback(), 
+        self.bus.setCallbacks(
+            self.palette_ram_indices.busCallback(), 
             0x3F00, 0x3F20
         );
-        ppu_bus.bus.setCallbacks(
-            ppu_bus.palette_ram_indices_mirrors.busCallback(), 
+        self.bus.setCallbacks(
+            self.palette_ram_indices_mirrors.busCallback(), 
             0x3F20, 0x4000
         );
-
-        return ppu_bus;
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
