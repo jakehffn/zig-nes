@@ -11,14 +11,17 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
     return struct {
         const Self = @This();
 
-        pc: u16 = 0,
+        pc: u16 = 0xC000,
         sp: u8 = 0xFD, // Documented startup value
         a: u8 = 0,
         x: u8 = 0,
         y: u8 = 0,
-        flags: Flags = .{},
+        flags: Flags = @bitCast(Flags, @as(u8, 0x24)),
+
         bus: *Bus,
+        nmi: *bool,
         total_cycles: u32 = 0,
+        step_cycles: u32 = 0,
         log_file: std.fs.File,
 
         /// CPU status register layout
@@ -29,14 +32,14 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         /// Bit 5 should always be set, but bit 4, when not set, indicates that the value
         /// was pushed to the stack while processing an interrupt.
         const Flags = packed struct {
-            N: u1 = 0, // Negative
-            V: u1 = 0, // Overflow
-            _: u1 = 1,
-            B: u1 = 0, // Break Command
-            D: u1 = 0, // Decimal Mode
-            I: u1 = 0, // Interrupt Disable
-            Z: u1 = 0, // Zero
             C: u1 = 0, // Carry
+            Z: u1 = 0, // Zero
+            I: u1 = 0, // Interrupt Disable
+            D: u1 = 0, // Decimal Mode
+            B: u1 = 0, // Break Command
+            must_be_one: u1 = 1,
+            V: u1 = 0, // Overflow
+            N: u1 = 0, // Negative
         };
 
         const Mnemonic = enum {
@@ -150,7 +153,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 // Program counter at instruction first byte
                 try writer.print("{X:0>4}  ", .{value.pc});
                 // All bytes of instruction
-                var bytes = [_]u16{0xFF, 0xFF, 0xFF};
+                var bytes = [_]u8{0xFF, 0xFF, 0xFF};
                 const read_bytes = value.cpu.pc - value.pc;
                 for (0..3) |i| {
                     if (i < read_bytes) {
@@ -173,20 +176,20 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     },
                     .absolute_x => {
                         try writer.print("${X:0>4},X @ {X:0>4} = {X:0>2}"  ++ (" " ** 10), .{
-                            value.operand.address - value.cpu.x, 
+                            value.operand.address -% value.cpu.x, 
                             value.operand.address, 
                             value.operand.value
                         });
                     },
                     .absolute_y => {
                         try writer.print("${X:0>4},Y @ {X:0>4} = {X:0>2}" ++ (" " ** 10), .{
-                            value.operand.address - value.cpu.y, 
+                            value.operand.address -% value.cpu.y, 
                             value.operand.address, 
                             value.operand.value
                         });
                     },
                     .immediate => {
-                        try writer.print("#${X:0>2}" ++ (" " ** 24), .{value.operand.address});
+                        try writer.print("#${X:0>2}" ++ (" " ** 24), .{value.operand.value});
                     },
                     .implied => {
                         try writer.print(" " ** 28, .{});
@@ -206,9 +209,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                         });
                     },
                     .indirect_y => {
-                        try writer.print("(${X:0>2}),Y @ {X:0>4} = {X:0>4} = {X:0>2}  ", .{
+                        try writer.print("(${X:0>2}),Y = {X:0>4} @ {X:0>4} = {X:0>2}  ", .{
                             bytes[1],
-                            value.operand.address - value.cpu.y,
+                            value.operand.address -% value.cpu.y,
                             value.operand.address,
                             value.operand.value
                         });
@@ -218,14 +221,14 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     },
                     .zero_page_x => {
                         try writer.print("${X:0>2},X @ {X:0>2} = {X:0>2}" ++ (" " ** 13), .{
-                            value.operand.address - value.cpu.x, 
+                            value.operand.address -% value.cpu.x, 
                             value.operand.address, 
                             value.operand.value
                         });
                     },
                     .zero_page_y => {
                         try writer.print("${X:0>2},Y @ {X:0>2} = {X:0>2}"  ++ (" " ** 13), .{
-                            value.operand.address - value.cpu.y, 
+                            value.operand.address -% value.cpu.y, 
                             value.operand.address, 
                             value.operand.value
                         });
@@ -318,6 +321,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
 
             defaults[0x6C] = .{.mnemonic = .JMP, .addressing_mode = .indirect};
 
+            defaults[0x96] = .{.mnemonic = .STX, .addressing_mode = .zero_page_y};
+            defaults[0xB6] = .{.mnemonic = .LDX, .addressing_mode = .zero_page_y};
+            defaults[0xBE] = .{.mnemonic = .LDX, .addressing_mode = .absolute_y};
+
             break :init defaults;
         };
 
@@ -343,6 +350,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         pub fn init(main_bus: *MainBus) !Self {
             return .{
                 .bus = &main_bus.bus,
+                .nmi = &main_bus.nmi,
                 .log_file = blk: {
                     if (debug_log_file_path) |path| {
                         break :blk try std.fs.cwd().createFile(path, .{});
@@ -353,9 +361,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             };
         }
 
-        pub fn initWithTestBus(bus: *Bus) !Self {
+        pub fn initWithTestBus(bus: *Bus, nmi: *bool) !Self {
             return .{
                 .bus = bus,
+                .nmi = nmi,
                 .log_file = blk: {
                     if (debug_log_file_path) |path| {
                         break :blk try std.fs.cwd().createFile(path, .{});
@@ -372,6 +381,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             }
         }
 
+        pub fn reset(self: *Self) void {
+            const addr_low: u16 = self.bus.readByte(0xFFFC);
+            const addr_high: u16 = self.bus.readByte(0xFFFD);
+            self.pc = (addr_high << 8) | addr_low;
+        }
+
         pub fn getInstruction(inst: Byte) Instruction {
             // Unmapped opcodes are treated as NOP
             if (opcode_cycles[inst.raw] == 0) {
@@ -386,7 +401,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 };
         }
 
-        pub fn step(self: *Self) void {
+        pub fn step(self: *Self) u32 {
+            self.step_cycles = 0;
+
             var byte = Byte{ .raw = self.bus.readByte(self.pc)};
             const read_byte_addr = self.pc;
 
@@ -405,16 +422,33 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 }}) catch {};
             }
 
+            self.step_cycles += opcode_cycles[byte.raw];
             self.execute(curr_instruction.mnemonic, operand);
+            self.total_cycles +%= self.step_cycles;
 
-            self.total_cycles += opcode_cycles[byte.raw];
+            if (self.nmi.*) {
+                self.nmiInterrupt();
+            }
+
+            return self.step_cycles;
+        }
+
+        fn nmiInterrupt(self: *Self) void {
+            self.stackPush(@truncate(u8, self.pc >> 8));
+            self.stackPush(@truncate(u8, self.pc));
+            self.stackPush(@bitCast(u8, self.flags));
+            self.flags.I = 1;
+            const addr_low: u16 = self.bus.readByte(0xFFFA);
+            const addr_high: u16 = self.bus.readByte(0xFFFB);
+            self.pc = (addr_high << 8) | addr_low;
+            self.nmi.* = false;
         }
 
         inline fn branch(self: *Self, address: u16) void {
-            if ((self.pc / 256) == (address / 256)) {
-                self.total_cycles += 1;
+            if ((self.pc >> 8) == (address >> 8)) {
+                self.step_cycles += 1;
             } else {
-                self.total_cycles += 2;
+                self.step_cycles += 2;
             }
             self.pc = address;
         } 
@@ -427,6 +461,15 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         inline fn stackPop(self: *Self) u8 {
             self.sp += 1;
             return self.bus.readByte(0x100 | @as(u16, self.sp));
+        }
+
+        fn printStack(self: *Self) void {
+
+            std.debug.print("\n\nTOP:::TTOP\n", .{});
+            for (0..0x100) |i| {
+                const address = 0x100 | @truncate(u16, i);
+                std.debug.print("${X}:0x{X}\n", .{address, self.bus.readByte(address)});
+            }
         }
 
         inline fn setFlagsNZ(self: *Self, value: u8) void {
@@ -449,7 +492,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     const addr_low: u16 = self.bus.readByte(self.pc);
                     const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
-                    const addr: u16 = ((addr_high << 8) | addr_low) + self.x;
+                    const addr: u16 = ((addr_high << 8) | addr_low) +% self.x;
                     break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .absolute_y => blk: {
@@ -457,7 +500,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     const addr_low: u16 = self.bus.readByte(self.pc);
                     const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
-                    const addr: u16 = ((addr_high << 8) | addr_low) + self.y;
+                    const addr: u16 = ((addr_high << 8) | addr_low) +% self.y;
                     break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .immediate => blk: {
@@ -469,12 +512,13 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .implied => .{},
                 .indirect => blk: {
                     // Indirect is only used by the JMP instruction, so no need to get value
-                    const addr_low: u16 = self.bus.readByte(self.pc);
+                    const addr_low: u8 = self.bus.readByte(self.pc);
                     const addr_high: u16 = self.bus.readByte(self.pc + 1);
                     self.pc += 2;
-                    const addr: u16 = (addr_high << 8) | addr_low;
-                    const target_low: u16 = self.bus.readByte(addr);
-                    const target_high: u16 = self.bus.readByte(addr + 1);
+                    const target_addr_low: u16 = (addr_high << 8) | addr_low;
+                    const target_addr_high: u16 = (addr_high << 8) | (addr_low +% 1);
+                    const target_low: u16 = self.bus.readByte(target_addr_low);
+                    const target_high: u16 = self.bus.readByte(target_addr_high);
                     const target: u16 = (target_high << 8) | target_low; 
                     break :blk .{.address = target};
                 },
@@ -507,12 +551,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .zero_page_x => blk: { 
-                    const addr = self.bus.readByte(self.pc) + self.x;
+                    const addr = self.bus.readByte(self.pc) +% self.x;
                     self.pc += 1;
                     break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 },
                 .zero_page_y => blk: {
-                    const addr = self.bus.readByte(self.pc) + self.y;
+                    const addr = self.bus.readByte(self.pc) +% self.y;
                     self.pc += 1;
                     break :blk .{.address = addr, .value = self.bus.readByte(addr)};
                 }
@@ -620,12 +664,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .CPX => {
                     const res = self.x -% operand.value;
-                    self.flags.C = @boolToInt(self.a >= operand.value);
+                    self.flags.C = @boolToInt(self.x >= operand.value);
                     self.setFlagsNZ(res);
                 },
                 .CPY => {
                     const res = self.y -% operand.value;
-                    self.flags.C = @boolToInt(self.a >= operand.value);
+                    self.flags.C = @boolToInt(self.y >= operand.value);
                     self.setFlagsNZ(res);
                 },
                 .DEC => {
@@ -663,8 +707,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     self.branch(operand.address);
                 },
                 .JSR => {
-                    self.stackPush(@truncate(u8, self.pc >> 8));
-                    self.stackPush(@truncate(u8, self.pc));
+                    var stored_pc = self.pc -% 1;
+                    self.stackPush(@truncate(u8, stored_pc >> 8));
+                    self.stackPush(@truncate(u8, stored_pc));
                     self.pc = operand.address;
                 },
                 .LDA => {
@@ -701,7 +746,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     self.stackPush(self.a);
                 },
                 .PHP => {
-                    self.stackPush(@bitCast(u8, self.flags));
+                    var op = self.flags;
+                    op.must_be_one = 1;
+                    op.B = 1;
+                    self.stackPush(@bitCast(u8, op));
                 },
                 .PLA => { 
                     self.a = self.stackPop();
@@ -709,6 +757,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .PLP => {
                     self.flags = @bitCast(Flags, self.stackPop());
+                    self.flags.must_be_one = 1;
+                    self.flags.B = 0;
                 },
                 .ROL => {
                     const res = (operand.value << 1) | self.flags.C;
@@ -736,6 +786,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .RTI => { 
                     self.flags = @bitCast(Flags, self.stackPop());
+                    self.flags.must_be_one = 1;
+                    self.flags.B = 0;
                     const addr_low: u16 = self.stackPop();
                     const addr_high: u16 = self.stackPop();
                     self.pc = (addr_high << 8) | addr_low;
@@ -743,7 +795,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .RTS => {
                     const addr_low: u16 = self.stackPop();
                     const addr_high: u16 = self.stackPop();
-                    self.pc = (addr_high << 8) | addr_low;
+                    self.pc = ((addr_high << 8) | addr_low) +% 1;
                 },
                 .SBC => {
                     const op = self.a;
@@ -790,7 +842,6 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .TXS => {
                     self.sp = self.x;
-                    self.setFlagsNZ(self.sp);
                 },
                 .TYA => {
                     self.a = self.y;
