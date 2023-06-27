@@ -175,14 +175,14 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                         try writer.print("${X:0>4}" ++ (" " ** 23), .{value.operand.address});
                     },
                     .absolute_x => {
-                        try writer.print("${X:0>4},X @ {X:0>4} = {X:0>2}"  ++ (" " ** 10), .{
+                        try writer.print("${X:0>4},X @ {X:0>4} = {X:0>2}"  ++ (" " ** 9), .{
                             value.operand.address -% value.cpu.x, 
                             value.operand.address, 
                             value.operand.value
                         });
                     },
                     .absolute_y => {
-                        try writer.print("${X:0>4},Y @ {X:0>4} = {X:0>2}" ++ (" " ** 10), .{
+                        try writer.print("${X:0>4},Y @ {X:0>4} = {X:0>2}" ++ (" " ** 9), .{
                             value.operand.address -% value.cpu.y, 
                             value.operand.address, 
                             value.operand.value
