@@ -14,33 +14,49 @@ const Ram = @import("./ram.zig").Ram;
 const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
 const Rom = @import("./rom.zig").Rom;
 
+const ControllerStatus = @import("./controller.zig").Controller.Status;
+
 pub fn main() !void {
     var ppu_bus = try PpuBus.init(page_allocator);
     defer ppu_bus.deinit(page_allocator);
+    ppu_bus.setCallbacks();
+
     var ppu = Ppu.init(&ppu_bus);
 
-    var main_bus = try MainBus.init(page_allocator, &ppu);
+    var main_bus = try MainBus.init(page_allocator);
     defer main_bus.deinit(page_allocator);
+    main_bus.setCallbacks(&ppu);
+
     var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
     defer cpu.deinit();
 
     ppu.setMainBus(&main_bus);
 
-    var snake_rom = Rom.init(page_allocator);
-    try snake_rom.load("./test-files/nestest.nes");
+    var args = try std.process.argsWithAllocator(page_allocator);
+    defer args.deinit();
+    _ = args.skip();
+    var rom_path = args.next() orelse "./test-files/nestest.nes";
+    std.debug.print("Loading rom: {s}\n", .{rom_path});
 
-    main_bus.loadRom(&snake_rom);
+    var rom = Rom.init(page_allocator);
+    defer rom.deinit();
+    try rom.load(rom_path);
+
+    main_bus.loadRom(&rom);
+    ppu_bus.loadRom(&rom);
+
+    cpu.reset();
 
     _ = c.SDL_Init(c.SDL_INIT_VIDEO);
     defer c.SDL_Quit();
 
-    var window = c.SDL_CreateWindow("ZigNES", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 256, 240, 0);
+    const scale = 2;
+    var window = c.SDL_CreateWindow("ZigNES", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, 256*scale, 240*scale, 0);
     defer c.SDL_DestroyWindow(window);
 
     var renderer = c.SDL_CreateRenderer(window, 0, c.SDL_RENDERER_PRESENTVSYNC);
     defer c.SDL_DestroyRenderer(renderer);
 
-    const scale = 4;
     _ = c.SDL_RenderSetScale(renderer, scale, scale);
 
     var texture = c.SDL_CreateTexture(
@@ -51,28 +67,60 @@ pub fn main() !void {
         240
     );
 
+    var cpu_step_cycles: u32 = 0;
+
     mainloop: while (true) {
-        var sdl_event: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&sdl_event) != 0) {
-            switch (sdl_event.type) {
-                c.SDL_QUIT => break :mainloop,
-                c.SDL_KEYDOWN => {
-                    switch (sdl_event.key.keysym.sym) {
-                        c.SDLK_w, c.SDLK_UP => {},
-                        c.SDLK_a, c.SDLK_LEFT => {},
-                        c.SDLK_s, c.SDLK_DOWN => {},
-                        c.SDLK_d, c.SDLK_RIGHT => {},
-                        else => {}
-                    }
-                },
-                else => {},
+
+        cpu_step_cycles = cpu.step();
+        ppu.step(cpu_step_cycles);
+
+        if (main_bus.nmi) {
+
+            var controller_status: ControllerStatus = .{};
+
+            var sdl_event: c.SDL_Event = undefined;
+            while (c.SDL_PollEvent(&sdl_event) != 0) {
+                switch (sdl_event.type) {
+                    c.SDL_QUIT => break :mainloop,
+                    c.SDL_KEYDOWN => {
+                        switch (sdl_event.key.keysym.sym) {
+                            c.SDLK_w, c.SDLK_UP => {
+                                controller_status.up = 1;
+                            },
+                            c.SDLK_a, c.SDLK_LEFT => {
+                                controller_status.left = 1;
+                            },
+                            c.SDLK_s, c.SDLK_DOWN => {
+                                controller_status.down = 1;
+                            },
+                            c.SDLK_d, c.SDLK_RIGHT => {
+                                controller_status.right = 1;
+                            },
+                            c.SDLK_RETURN => {
+                                controller_status.start = 1;
+                            },
+                            c.SDLK_SPACE => {
+                                controller_status.select = 1;
+                            },
+                            c.SDLK_j => {
+                                controller_status.a = 1;
+                            },
+                            c.SDLK_k => {
+                                controller_status.b = 1;
+                            },
+                            else => {}
+                        }
+                    },
+                    else => {},
+                }
             }
+
+            main_bus.controller.status = controller_status;
+
+            ppu.render();
+            _ = c.SDL_UpdateTexture(texture, null, &ppu.screen.data, 256*3);
+            _ = c.SDL_RenderCopy(renderer, texture, null, null);
+            c.SDL_RenderPresent(renderer);
         }
-
-        cpu.step();
-
-        // _ = c.SDL_UpdateTexture(texture, null, mapped_screen.data(), 32*3);
-        _ = c.SDL_RenderCopy(renderer, texture, null, null);
-        c.SDL_RenderPresent(renderer);
     }
 }
