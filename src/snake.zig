@@ -8,6 +8,7 @@ const c = @cImport({
 const Cpu = @import("./cpu.zig").Cpu;
 const Bus = @import("./bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
+const MainBus = @import("./main_bus.zig").MainBus;
 const Ram = @import("./ram.zig").Ram;
 const Rom = @import("./rom.zig").Rom;
 
@@ -124,7 +125,8 @@ pub fn main() !void {
     bus.setCallbacks(mapped_screen.busCallback(), 0x200, 0x600);
     bus.setCallbacks(snake_rom.prg_rom.busCallback(), 0x8000, 0x10000);
 
-    var cpu = try Cpu("./log/6502_snake_test.log").initWithTestBus(&bus);
+    var unused_nmi: bool = false;
+    var cpu = try Cpu("./log/6502_snake_test.log").initWithTestBus(&bus, &unused_nmi);
     defer cpu.deinit();
     cpu.pc = 0x8600;
 
@@ -173,7 +175,7 @@ pub fn main() !void {
             }
         }
         
-        cpu.step();
+        _ = cpu.step();
 
         if (mapped_screen.hasUpdate()) {
             _ = c.SDL_UpdateTexture(texture, null, mapped_screen.data(), 32*3);

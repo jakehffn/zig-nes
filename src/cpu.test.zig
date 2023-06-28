@@ -28,7 +28,7 @@ const TestEnv = struct {
     
     pub fn writeNext(self: *Self, data: []const u8) void {
         for (data, 0..) |byte, i| {
-            self.bus.writeByte(self.cpu.pc + @intCast(u16, i), byte);
+            self.bus.writeByte(self.cpu.pc + @as(u16, @intCast(i)), byte);
         }
     }
 

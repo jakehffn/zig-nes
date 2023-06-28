@@ -7,6 +7,7 @@ const Ppu = @import("./ppu.zig").Ppu;
 const Ram = @import("./ram.zig").Ram;
 const Rom = @import("./rom.zig").Rom;
 const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
+const Controller = @import("./controller.zig").Controller;
 
 pub const MainBus = struct {
     const Self = @This();
@@ -16,6 +17,7 @@ pub const MainBus = struct {
     cpu_ram_mirrors: MemoryMirror(0x0000, 0x0800) = .{},
     ppu_registers_mirrors: MemoryMirror(0x2000, 0x2008) = .{},
     rom_mirror: MemoryMirror(0x8000, 0xC000) = .{},
+    controller: Controller = .{},
 
     nmi: bool = false,
 
@@ -47,6 +49,7 @@ pub const MainBus = struct {
         self.bus.setCallback(ppu.address_register.busCallback(), 0x2006);
         self.bus.setCallback(ppu.data_register.busCallback(), 0x2007);
         self.bus.setCallback(ppu.oam_dma_register.busCallback(), 0x4014);
+        self.bus.setCallback(self.controller.busCallback(), 0x4016);
         
         self.bus.setCallbacks(
             self.ppu_registers_mirrors.busCallback(), 

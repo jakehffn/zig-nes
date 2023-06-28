@@ -16,7 +16,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         a: u8 = 0,
         x: u8 = 0,
         y: u8 = 0,
-        flags: Flags = @bitCast(Flags, @as(u8, 0x24)),
+        flags: Flags = @bitCast(@as(u8, 0x24)),
 
         bus: *Bus,
         nmi: *bool,
@@ -157,7 +157,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 const read_bytes = value.cpu.pc - value.pc;
                 for (0..3) |i| {
                     if (i < read_bytes) {
-                        bytes[i] = value.cpu.bus.readByte(value.pc + @truncate(u8, i));
+                        bytes[i] = value.cpu.bus.readByte(value.pc + @as(u8, @truncate(i)));
                         try writer.print("{X:0>2} ", .{bytes[i]});
                     } else {
                         try writer.print("   ", .{});
@@ -239,7 +239,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     value.cpu.a,
                     value.cpu.x,
                     value.cpu.y,
-                    @bitCast(u8, value.cpu.flags),
+                    @as(u8, @bitCast(value.cpu.flags)),
                     value.cpu.sp,
                     0,
                     0,
@@ -434,9 +434,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         }
 
         fn nmiInterrupt(self: *Self) void {
-            self.stackPush(@truncate(u8, self.pc >> 8));
-            self.stackPush(@truncate(u8, self.pc));
-            self.stackPush(@bitCast(u8, self.flags));
+            self.stackPush(@truncate(self.pc >> 8));
+            self.stackPush(@truncate(self.pc));
+            self.stackPush(@bitCast(self.flags));
             self.flags.I = 1;
             const addr_low: u16 = self.bus.readByte(0xFFFA);
             const addr_high: u16 = self.bus.readByte(0xFFFB);
@@ -467,14 +467,14 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
 
             std.debug.print("\n\nTOP:::TTOP\n", .{});
             for (0..0x100) |i| {
-                const address = 0x100 | @truncate(u16, i);
+                const address: u16 = 0x100 | @as(u16, @truncate(i));
                 std.debug.print("${X}:0x{X}\n", .{address, self.bus.readByte(address)});
             }
         }
 
         inline fn setFlagsNZ(self: *Self, value: u8) void {
-            self.flags.N = @truncate(u1, value >> 7);
-            self.flags.Z = @boolToInt(value == 0);
+            self.flags.N = @truncate(value >> 7);
+            self.flags.Z = @bitCast(value == 0);
         }
 
         inline fn getOperand(self: *Self, addr_mode: AddressingMode) Operand {
@@ -541,7 +541,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .relative => blk: {
                     // Relative is only used by the branch instructions, so no need to get value
-                    const addr = @bitCast(u16, @bitCast(i8, self.bus.readByte(self.pc)) + @bitCast(i16, self.pc) + 1);
+                    // Relative addressing adds a signed value to pc, so the values can be cast to signed integers to get signed addition
+                    const addr: u16 = @bitCast(@as(i8, @bitCast(self.bus.readByte(self.pc))) + @as(i16, @bitCast(self.pc)) + 1);
                     self.pc += 1;
                     break :blk .{.address = addr};
                 },
@@ -569,8 +570,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     const op = self.a;
                     self.a = op +% operand.value +% self.flags.C;
                     // Overflow occurs iff the result has a different sign than both operands
-                    self.flags.V = @truncate(u1,((self.a ^ op) & (self.a ^ operand.value)) >> 7);
-                    self.flags.C = @boolToInt(self.a < operand.value);
+                    self.flags.V = @truncate(((self.a ^ op) & (self.a ^ operand.value)) >> 7);
+                    self.flags.C = @bitCast(self.a < operand.value);
                     self.setFlagsNZ(self.a);
                 },
                 .AND => {
@@ -581,13 +582,13 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .ASL => {
                     const res = operand.value << 1;
                     self.bus.writeByte(operand.address, res);
-                    self.flags.C = @truncate(u1, operand.value >> 7);
+                    self.flags.C = @truncate(operand.value >> 7);
                     self.setFlagsNZ(res);
                 },
                 .ASL_acc => {
                     const res = operand.value << 1;
                     self.a = res;
-                    self.flags.C = @truncate(u1, operand.value >> 7);
+                    self.flags.C = @truncate(operand.value >> 7);
                     self.setFlagsNZ(res);
                 },
                 .BCC => {
@@ -606,9 +607,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     }
                 },
                 .BIT => {
-                    self.flags.Z = @boolToInt((self.a & operand.value) == 0);
-                    self.flags.V = @truncate(u1, operand.value >> 6);
-                    self.flags.N = @truncate(u1, operand.value >> 7);
+                    self.flags.Z = @bitCast((self.a & operand.value) == 0);
+                    self.flags.V = @truncate(operand.value >> 6);
+                    self.flags.N = @truncate(operand.value >> 7);
                 },
                 .BMI => {
                     if (self.flags.N == 1) {
@@ -627,9 +628,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .BRK => {
                     // TODO: Check this logic
-                    self.stackPush(@truncate(u8, self.pc >> 8));
-                    self.stackPush(@truncate(u8, self.pc));
-                    self.stackPush(@bitCast(u8, self.flags));
+                    self.stackPush(@truncate(self.pc >> 8));
+                    self.stackPush(@truncate(self.pc));
+                    self.stackPush(@bitCast(self.flags));
                     const addr_low: u16 = self.bus.readByte(0xFFFE);
                     const addr_high: u16 = self.bus.readByte(0xFFFF);
                     self.flags.B = 1;
@@ -659,17 +660,17 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .CMP => {
                     const res = self.a -% operand.value;
-                    self.flags.C = @boolToInt(self.a >= operand.value);
+                    self.flags.C = @bitCast(self.a >= operand.value);
                     self.setFlagsNZ(res);
                 },
                 .CPX => {
                     const res = self.x -% operand.value;
-                    self.flags.C = @boolToInt(self.x >= operand.value);
+                    self.flags.C = @bitCast(self.x >= operand.value);
                     self.setFlagsNZ(res);
                 },
                 .CPY => {
                     const res = self.y -% operand.value;
-                    self.flags.C = @boolToInt(self.y >= operand.value);
+                    self.flags.C = @bitCast(self.y >= operand.value);
                     self.setFlagsNZ(res);
                 },
                 .DEC => {
@@ -708,8 +709,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .JSR => {
                     var stored_pc = self.pc -% 1;
-                    self.stackPush(@truncate(u8, stored_pc >> 8));
-                    self.stackPush(@truncate(u8, stored_pc));
+                    self.stackPush(@truncate(stored_pc >> 8));
+                    self.stackPush(@truncate(stored_pc));
                     self.pc = operand.address;
                 },
                 .LDA => {
@@ -727,13 +728,13 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .LSR => { 
                     const res = operand.value >> 1;
                     self.bus.writeByte(operand.address, res);
-                    self.flags.C = @truncate(u1, operand.value);
+                    self.flags.C = @truncate(operand.value);
                     self.setFlagsNZ(res);
                 },
                 .LSR_acc => {
                     const res = operand.value >> 1;
                     self.a = res;
-                    self.flags.C = @truncate(u1, operand.value);
+                    self.flags.C = @truncate(operand.value);
                     self.setFlagsNZ(res);
                 },
                 .NOP => {},
@@ -749,43 +750,43 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     var op = self.flags;
                     op.must_be_one = 1;
                     op.B = 1;
-                    self.stackPush(@bitCast(u8, op));
+                    self.stackPush(@bitCast(op));
                 },
                 .PLA => { 
                     self.a = self.stackPop();
                     self.setFlagsNZ(self.a);
                 },
                 .PLP => {
-                    self.flags = @bitCast(Flags, self.stackPop());
+                    self.flags = @bitCast(self.stackPop());
                     self.flags.must_be_one = 1;
                     self.flags.B = 0;
                 },
                 .ROL => {
                     const res = (operand.value << 1) | self.flags.C;
                     self.bus.writeByte(operand.address, res);
-                    self.flags.C = @truncate(u1, operand.value >> 7);
+                    self.flags.C = @truncate(operand.value >> 7);
                     self.setFlagsNZ(res);
                 },
                 .ROL_acc => {
                     const op = self.a;                
                     self.a = (op << 1) | self.flags.C;
-                    self.flags.C = @truncate(u1, op >> 7);
+                    self.flags.C = @truncate(op >> 7);
                     self.setFlagsNZ(self.a); 
                 },
                 .ROR => {
                     const res = (operand.value >> 1) | (@as(u8, self.flags.C) << 7);
                     self.bus.writeByte(operand.address, res);
-                    self.flags.C = @truncate(u1, operand.value);
+                    self.flags.C = @truncate(operand.value);
                     self.setFlagsNZ(res);
                 },
                 .ROR_acc => {
                     const op = self.a;                
                     self.a = (op >> 1) | (@as(u8, self.flags.C) << 7);
-                    self.flags.C = @truncate(u1, op);
+                    self.flags.C = @truncate(op);
                     self.setFlagsNZ(self.a);
                 },
                 .RTI => { 
-                    self.flags = @bitCast(Flags, self.stackPop());
+                    self.flags = @bitCast(self.stackPop());
                     self.flags.must_be_one = 1;
                     self.flags.B = 0;
                     const addr_low: u16 = self.stackPop();
@@ -802,8 +803,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     self.a = op -% operand.value -% (1 - self.flags.C);
                     // Overflow will occur iff the operands have different signs, and 
                     //      the result has a different sign than the minuend
-                    self.flags.V = @truncate(u1,((op ^ operand.value) & (op ^ self.a)) >> 7);
-                    self.flags.C = @boolToInt(((operand.value +% (1 - self.flags.C)) <= op));
+                    self.flags.V = @truncate(((op ^ operand.value) & (op ^ self.a)) >> 7);
+                    self.flags.C = @bitCast((operand.value +% (1 - self.flags.C)) <= op);
                     self.setFlagsNZ(self.a);
                 },
                 .SEC => {

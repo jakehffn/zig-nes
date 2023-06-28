@@ -27,7 +27,7 @@ pub fn Ram(comptime N: usize) type {
 
         pub fn write_bytes(self: *Self, bytes: []u8, base_address: u16) void {
             for (bytes, 0..) |byte, i| {
-                self.ram[base_address + @truncate(u16, i)] = byte;
+                self.ram[base_address + @as(u16, @truncate(i))] = byte;
             }
         }
 

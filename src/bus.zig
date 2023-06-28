@@ -27,14 +27,12 @@ pub const Bus = struct {
 
             const gen = struct {
                 fn readCallback(pointer: *anyopaque, bus: *Bus, address: u16) u8 {
-                    const alignment = @typeInfo(Ptr).Pointer.alignment;
-                    const self = @ptrCast(Ptr, if (alignment >= 1) @alignCast(alignment, pointer) else pointer);
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.always_inline, read_callback, .{self, bus, address});
                 }
 
                 fn writeCallback(pointer: *anyopaque, bus: *Bus, address: u16, value: u8) void {
-                    const alignment = @typeInfo(Ptr).Pointer.alignment;
-                    const self = @ptrCast(Ptr, if (alignment >= 1) @alignCast(alignment, pointer) else pointer);
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
                     @call(.always_inline, write_callback, .{self, bus, address, value});
                 }
             };

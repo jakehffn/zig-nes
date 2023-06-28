@@ -10,9 +10,12 @@ pub const Ppu = struct {
     const Self = @This();
 
     bus: *Bus,
-    main_bus: *Bus,
+    main_bus: *MainBus,
     /// Object attribute memory
     oam: [256]u8,
+    total_cycles: u32 = 0,
+    scanline: u16 = 0,
+    screen: Screen,
 
     // In CPU, mapped to:
     // 0x2000
@@ -24,13 +27,18 @@ pub const Ppu = struct {
         fn write(ppu: *Ppu, bus: *Bus, address: u16, value: u8) void {
             _ = address;
             _ = bus;
-            ppu.controller_register.flags = @bitCast(ControlFlags, value);
+            const prev_v = ppu.controller_register.flags.V;
+            ppu.controller_register.flags = @bitCast(value);
+
+            if (ppu.status_register.flags.V == 1 and prev_v == 0 and ppu.controller_register.flags.V == 1) {
+                ppu.main_bus.nmi = true;
+            }
         }
 
         pub fn busCallback(self: *ControlRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "controller_register", self),
-                BusCallback.disallowedRead(Self, "Cannot read from PPU controller register", false),
+                BusCallback.noRead(Self, "PPU::Cannot read from PPU controller register", false),
                 ControlRegister.write
             );
         }
@@ -44,13 +52,13 @@ pub const Ppu = struct {
         fn write(ppu: *Ppu, bus: *Bus, address: u16, value: u8) void {
             _ = address;
             _ = bus;
-            ppu.mask_register.flags = @bitCast(MaskFlags, value);
+            ppu.mask_register.flags = @bitCast(value);
         }
 
         pub fn busCallback(self: *MaskRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "mask_register", self),
-                BusCallback.disallowedRead(Self, "Cannot read from PPU mask register", false),
+                BusCallback.noRead(Self, "PPU::Cannot read from PPU mask register", false),
                 MaskRegister.write
             );
         }
@@ -65,14 +73,14 @@ pub const Ppu = struct {
             _ = address;
             _ = bus;
             ppu.address_register.high_latch = true;
-            return @bitCast(u8, ppu.status_register.flags);
+            return @bitCast(ppu.status_register.flags);
         }
 
         pub fn busCallback(self: *StatusRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "status_register", self),
                 StatusRegister.read,
-                BusCallback.disallowedWrite(Self, "Cannot write to PPU status register", false)
+                BusCallback.noWrite(Self, "PPU::Cannot write to PPU status register", false)
             );
         }
     } = .{}, 
@@ -92,7 +100,7 @@ pub const Ppu = struct {
         pub fn busCallback(self: *OamAddressRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "oam_address_register", self), 
-                BusCallback.disallowedRead(Self, "Cannot read from PPU oam address register", false),
+                BusCallback.noRead(Self, "PPU::Cannot read from PPU oam address register", false),
                 OamAddressRegister.write
             );
         }
@@ -143,14 +151,14 @@ pub const Ppu = struct {
             } else {
                 ppu.scroll_register.offsets.vertical = value;
             } 
-            ppu.address_register.high_latch = false;
+            ppu.address_register.high_latch = !ppu.address_register.high_latch;
 
         }
 
         pub fn busCallback(self: *ScrollRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "scroll_register", self), 
-                BusCallback.disallowedRead(Self, "Cannot read from PPU scroll register", false),
+                BusCallback.noRead(Self, "PPU::Cannot read from PPU scroll register", false),
                 ScrollRegister.write
             );
         }
@@ -178,7 +186,7 @@ pub const Ppu = struct {
             } else {
                 ppu.address_register.address.bytes.low = value;
             } 
-            ppu.address_register.high_latch = false;
+            ppu.address_register.high_latch = !ppu.address_register.high_latch;
         }
 
         fn incrementAddress(ppu: *Ppu) void {
@@ -189,7 +197,7 @@ pub const Ppu = struct {
         pub fn busCallback(self: *AddressRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "address_register", self),
-                BusCallback.disallowedRead(Self, "Cannot read from PPU address register", false),
+                BusCallback.noRead(Self, "PPU::Cannot read from PPU address register", false),
                 AddressRegister.write
             );
         }
@@ -201,8 +209,8 @@ pub const Ppu = struct {
         read_buffer: u8 = 0,
 
         fn read(ppu: *Ppu, bus: *Bus, address: u16) u8 {
+            _ = bus;
             // TODO: Read conflict with DPCM samples
-
             _ = address; 
             // Wrapping back to addressable range
             var wrapped_address = ppu.address_register.address.value & 0x3FFF;
@@ -211,19 +219,22 @@ pub const Ppu = struct {
             //  as if the mirrors continued to the end of the address range
             //  Explained here: https://www.nesdev.org/wiki/PPU_registers#PPUDATA
             if (wrapped_address >= 0x3F00) {
-                ppu.data_register.read_buffer = bus.readByte(wrapped_address - 0x1000);
-                return bus.readByte(wrapped_address);
+                ppu.data_register.read_buffer = ppu.bus.readByte(wrapped_address - 0x1000);
+                return ppu.bus.readByte(wrapped_address);
             }
             const last_read_byte = ppu.data_register.read_buffer;
-            ppu.data_register.read_buffer = bus.readByte(wrapped_address);
-            @TypeOf(ppu.address_register).incrementAddress(ppu);
+            ppu.data_register.read_buffer = ppu.bus.readByte(wrapped_address);
             return last_read_byte;
         }    
 
         fn write(ppu: *Ppu, bus: *Bus, address: u16, value: u8) void {
+            _ = bus;
             _ = address;
             // Wrapping back to addressable range
-            bus.writeByte(ppu.address_register.address.value & 0x3FFF, value);
+            ppu.bus.writeByte(ppu.address_register.address.value & 0x3FFF, value);
+            // if (ppu.address_register.address.value & 0x3FFF > 0x2FFF) {
+            //     std.debug.print("PPU::Wrote: 0x{X} to ${X}\n", .{value, ppu.address_register.address.value & 0x3FFF});
+            // }
             @TypeOf(ppu.address_register).incrementAddress(ppu);
         }
 
@@ -244,14 +255,14 @@ pub const Ppu = struct {
             _ = bus;
             const base_address = @as(u16, value) << 8;
             for (&ppu.oam, base_address..) |*entry, addr| {
-                entry.* = ppu.main_bus.readByte(@truncate(u16, addr));
+                entry.* = ppu.main_bus.bus.readByte(@truncate(addr));
             }
         }
 
         pub fn busCallback(self: *OamDmaRegister) BusCallback {
             return BusCallback.init(
                 @fieldParentPtr(Ppu, "oam_dma_register", self), 
-                BusCallback.disallowedRead(Self, "Cannot read from PPU OAM DMA register", false),
+                BusCallback.noRead(Self, "PPU::Cannot read from PPU OAM DMA register", false),
                 OamDmaRegister.write
             );
         }
@@ -352,11 +363,47 @@ pub const Ppu = struct {
         V: u1 = 0
     };
 
+    const Screen = struct {
+        const width: usize = 256;
+        const height: usize = 240;
+
+        data: [width*height*3]u8 = undefined,
+
+        pub fn init() Screen {
+            var screen: Screen = .{};
+            @memset(screen.data[0..screen.data.len], 0);
+            return screen;
+        }
+
+        pub fn setPixel(self: *Screen, x: usize, y: usize, pixel: []u8) void {
+            const offset = y * 3 * width + x * 3;
+            @memcpy(self.data[offset..offset+3], pixel);
+        }
+    };
+
+    // TODO: Load palletes from somewhere else
+    const palette = [64][3]u8{
+        [_]u8{0x80, 0x80, 0x80}, [_]u8{0x00, 0x3D, 0xA6}, [_]u8{0x00, 0x12, 0xB0}, [_]u8{0x44, 0x00, 0x96}, [_]u8{0xA1, 0x00, 0x5E},
+        [_]u8{0xC7, 0x00, 0x28}, [_]u8{0xBA, 0x06, 0x00}, [_]u8{0x8C, 0x17, 0x00}, [_]u8{0x5C, 0x2F, 0x00}, [_]u8{0x10, 0x45, 0x00},
+        [_]u8{0x05, 0x4A, 0x00}, [_]u8{0x00, 0x47, 0x2E}, [_]u8{0x00, 0x41, 0x66}, [_]u8{0x00, 0x00, 0x00}, [_]u8{0x05, 0x05, 0x05},
+        [_]u8{0x05, 0x05, 0x05}, [_]u8{0xC7, 0xC7, 0xC7}, [_]u8{0x00, 0x77, 0xFF}, [_]u8{0x21, 0x55, 0xFF}, [_]u8{0x82, 0x37, 0xFA},
+        [_]u8{0xEB, 0x2F, 0xB5}, [_]u8{0xFF, 0x29, 0x50}, [_]u8{0xFF, 0x22, 0x00}, [_]u8{0xD6, 0x32, 0x00}, [_]u8{0xC4, 0x62, 0x00},
+        [_]u8{0x35, 0x80, 0x00}, [_]u8{0x05, 0x8F, 0x00}, [_]u8{0x00, 0x8A, 0x55}, [_]u8{0x00, 0x99, 0xCC}, [_]u8{0x21, 0x21, 0x21},
+        [_]u8{0x09, 0x09, 0x09}, [_]u8{0x09, 0x09, 0x09}, [_]u8{0xFF, 0xFF, 0xFF}, [_]u8{0x0F, 0xD7, 0xFF}, [_]u8{0x69, 0xA2, 0xFF},
+        [_]u8{0xD4, 0x80, 0xFF}, [_]u8{0xFF, 0x45, 0xF3}, [_]u8{0xFF, 0x61, 0x8B}, [_]u8{0xFF, 0x88, 0x33}, [_]u8{0xFF, 0x9C, 0x12},
+        [_]u8{0xFA, 0xBC, 0x20}, [_]u8{0x9F, 0xE3, 0x0E}, [_]u8{0x2B, 0xF0, 0x35}, [_]u8{0x0C, 0xF0, 0xA4}, [_]u8{0x05, 0xFB, 0xFF},
+        [_]u8{0x5E, 0x5E, 0x5E}, [_]u8{0x0D, 0x0D, 0x0D}, [_]u8{0x0D, 0x0D, 0x0D}, [_]u8{0xFF, 0xFF, 0xFF}, [_]u8{0xA6, 0xFC, 0xFF},
+        [_]u8{0xB3, 0xEC, 0xFF}, [_]u8{0xDA, 0xAB, 0xEB}, [_]u8{0xFF, 0xA8, 0xF9}, [_]u8{0xFF, 0xAB, 0xB3}, [_]u8{0xFF, 0xD2, 0xB0},
+        [_]u8{0xFF, 0xEF, 0xA6}, [_]u8{0xFF, 0xF7, 0x9C}, [_]u8{0xD7, 0xE8, 0x95}, [_]u8{0xA6, 0xED, 0xAF}, [_]u8{0xA2, 0xF2, 0xDA},
+        [_]u8{0x99, 0xFF, 0xFC}, [_]u8{0xDD, 0xDD, 0xDD}, [_]u8{0x11, 0x11, 0x11}, [_]u8{0x11, 0x11, 0x11}
+    }; 
+
     pub fn init(ppu_bus: *PpuBus) Ppu {
         var ppu: Ppu = .{
             .bus = &ppu_bus.bus,
             .main_bus = undefined,
-            .oam = undefined
+            .oam = undefined,
+            .screen = Screen.init()
         };
 
         @memset(ppu.oam[0..ppu.oam.len], 0);
@@ -365,6 +412,72 @@ pub const Ppu = struct {
     }
 
     pub fn setMainBus(self: *Self, main_bus: *MainBus) void {
-        self.main_bus = &main_bus.bus;
+        self.main_bus = main_bus;
+    }
+
+    /// Takes the number of cycles of the last executed CPU instructions
+    pub fn step(self: *Self, cpu_cycles: u32) void {
+        self.total_cycles += 3*cpu_cycles;
+
+        if (self.total_cycles >= 341) {
+            self.total_cycles -= 341;
+            self.scanline += 1;
+
+            if (self.scanline == 241) {
+                self.status_register.flags.V = 1;
+                if (self.controller_register.flags.V == 1) {
+                    self.main_bus.*.nmi = true;
+                }
+            }
+
+            if (self.scanline >= 262) {
+                self.scanline = 0;
+                self.status_register.flags.V = 0;
+            }
+        }
+    }
+
+    fn bgPalette(self: *Self, tile_column: usize, tile_row : usize) [4]u8 {
+        const attr_table_idx = (tile_row / 4) * 8 + (tile_column / 4);
+        var attr_byte = self.bus.readByte(@truncate(0x2000 + 0x3C0 + attr_table_idx)); 
+
+        const palette_idx = switch (@as(u2, @truncate((((tile_row % 4) / 2) << 1) | ((tile_column % 4) / 2)))) {
+            0 => attr_byte & 0b11,
+            1 => (attr_byte >> 2) & 0b11,
+            2 => (attr_byte >> 4) & 0b11,
+            3 => (attr_byte >> 6) & 0b11,
+        };
+
+        const palettes_offset: u16 = 0x3F00;
+        const pallete_start: u16 = palettes_offset + 1 + @as(u16, palette_idx)*4;
+        return [_]u8{self.bus.readByte(palettes_offset), self.bus.readByte(pallete_start), self.bus.readByte(pallete_start+1), self.bus.readByte(pallete_start+2)};
+    }
+
+    pub fn render(self: *Self) void {
+        const bank = self.controller_register.flags.B;
+
+        // The screen is filled with 960 tiles
+        for (0..960) |i| {
+            const tile: u16 = self.bus.readByte(0x2000 + @as(u16, @truncate(i)));
+            const tile_x = i % 32;
+            const tile_y = i / 32;
+            const base_offset = (@as(u16, bank) * 1000) + (tile * 16);
+
+            const bg_palette = self.bgPalette(tile_x, tile_y);
+            // std.debug.print("Palette: Bg:{} 0:{} 1:{} 2:{}\n", .{bg_palette[0], bg_palette[1], bg_palette[2], bg_palette[3]});
+
+            for (0..8) |y| {
+                var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
+                var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
+
+                for (0..8) |x| {
+                    const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
+                    upper >>= 1;
+                    lower >>= 1;
+                    var pixel = palette[bg_palette[val]];
+                    self.screen.setPixel((tile_x * 8) + (7-x), (tile_y * 8) + y, &pixel);
+                }
+            }
+        }
     }
 };

@@ -101,7 +101,7 @@ pub const Rom = struct {
             reserved: u48, // must be zero
         });
 
-        std.debug.assert(std.mem.eql(u8, @ptrCast(*const [4]u8, &header_data.nes_string), "NES" ++ .{0x1A}));
+        std.debug.assert(std.mem.eql(u8, @as(*const [4]u8, @ptrCast(&header_data.nes_string)), "NES" ++ .{0x1A}));
 
         self.header = .{
             .i_nes_format = header_data.control_byte_2.i_nes_format,
@@ -120,17 +120,24 @@ pub const Rom = struct {
             .num_chr_rom_banks = header_data.num_chr_rom_banks
         };
 
-        const prg_bank_size = 16384;
+        const prg_bank_size = 0x4000;
         const prg_bytes = prg_bank_size * @as(u32, self.header.num_prg_rom_banks);
-        const chr_bank_size = 8192;
-        const chr_bytes = chr_bank_size *  @as(u32, self.header.num_chr_rom_banks);
+        try self.prg_rom.array.ensureTotalCapacityPrecise(prg_bytes);
+        self.prg_rom.array.expandToCapacity();
+
+        const chr_bank_size = 0x2000;
+        const chr_bytes = chr_bank_size * @as(u32, self.header.num_chr_rom_banks);
+        try self.chr_rom.array.ensureTotalCapacityPrecise(chr_bytes);
+        self.chr_rom.array.expandToCapacity();
 
         const trainer_size = 512;
         if (self.header.has_trainer) {
             try in_stream.skipBytes(trainer_size, .{});
         }
         
-        in_stream.readAllArrayList(&self.prg_rom.array, prg_bytes) catch {};
-        in_stream.readAllArrayList(&self.chr_rom.array, chr_bytes) catch {};
+        _ = in_stream.readAll(self.prg_rom.array.items) catch {};
+        _ = in_stream.readAll(self.chr_rom.array.items) catch {};
+
+        std.log.info("{}\n", .{self.header});
     }
 };
