@@ -8,7 +8,7 @@ const MirroringType = @import("./rom.zig").MirroringType;
 pub const MirroringRam = struct {
     const Self = @This();
 
-    ram: [0x1000]u8,
+    ram: [0x800]u8,
     mirroring_type: MirroringType,
 
     pub fn init() Self {
@@ -28,7 +28,7 @@ pub const MirroringRam = struct {
                 switch (address) {
                     0...0x3FF => address,
                     0x400...0xBFF => address - 0x400,
-                    0xC00...0x1000 => address - 0x800,
+                    0xC00...0xFFF => address - 0x800,
                     else => 0
                 },
             .vertical => address % 0x800
