@@ -349,11 +349,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .bus = &main_bus.bus,
                 .nmi = &main_bus.nmi,
                 .log_file = blk: {
-                    if (debug_log_file_path) |path| {
-                        break :blk try std.fs.cwd().createFile(path, .{});
-                    } else {
-                        break :blk undefined;
-                    }
+                    break :blk try std.fs.cwd().createFile(
+                        debug_log_file_path orelse {break :blk undefined;}, 
+                        .{}
+                    );
                 }
             };
         }
@@ -363,11 +362,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .bus = bus,
                 .nmi = nmi,
                 .log_file = blk: {
-                    if (debug_log_file_path) |path| {
-                        break :blk try std.fs.cwd().createFile(path, .{});
-                    } else {
-                        break :blk undefined;
-                    }
+                    break :blk try std.fs.cwd().createFile(
+                        debug_log_file_path orelse {break :blk undefined;}, 
+                        .{}
+                    );
                 }
             };
         }
@@ -453,11 +451,11 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
 
         inline fn stackPush(self: *Self, value: u8) void {
             self.bus.writeByte(0x100 | @as(u16, self.sp), value);
-            self.sp -= 1;
+            self.sp -%= 1;
         }
 
         inline fn stackPop(self: *Self) u8 {
-            self.sp += 1;
+            self.sp +%= 1;
             return self.bus.readByte(0x100 | @as(u16, self.sp));
         }
 
