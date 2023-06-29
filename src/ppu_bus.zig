@@ -13,8 +13,9 @@ pub const PpuBus = struct {
 
     bus: Bus,
     ram: MirroringRam,
-    ppu_ram_mirrors: MemoryMirror(0x2000, 0x2F00) = .{},
+    ppu_ram_mirrors: MemoryMirror(0x2000, 0x3000) = .{},
     palette_ram_indices: Ram(0x20),
+    background_palette_first_byte_mirrors: MemoryMirror(0x3F00, 0x3F10) = .{},
     palette_ram_indices_mirrors: MemoryMirror(0x3F00, 0x3F20) = .{},
 
     pub fn init(allocator: Allocator) !PpuBus {
@@ -39,6 +40,12 @@ pub const PpuBus = struct {
             self.palette_ram_indices.busCallback(), 
             0x3F00, 0x3F20
         );
+
+        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F10);
+        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F14);
+        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F18);
+        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F1C);
+
         self.bus.setCallbacks(
             self.palette_ram_indices_mirrors.busCallback(), 
             0x3F20, 0x4000
@@ -50,6 +57,7 @@ pub const PpuBus = struct {
     }
 
     pub fn loadRom(self: *Self, rom: *Rom) void {
+        self.ram.mirroring_type = rom.header.mirroring_type;
         self.bus.setCallbacks(
             rom.chr_rom.busCallback(), 
             0x0000, 0x2000

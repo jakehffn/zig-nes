@@ -29,7 +29,7 @@ pub const MainBus = struct {
         };
     }
 
-    pub fn setCallbacks(self: *Self, ppu: *Ppu) void {
+    pub fn setCallbacks(self: *Self, ppu: anytype) void {
 
         self.bus.setCallbacks(
             self.cpu_ram.busCallback(), 

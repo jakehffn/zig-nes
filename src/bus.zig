@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
-
 const Allocator = std.mem.Allocator;
 
 pub const Bus = struct {
@@ -17,7 +16,11 @@ pub const Bus = struct {
         pub const ReadCallback = *const fn (*anyopaque, *Bus, u16) u8;
         pub const WriteCallback = *const fn (*anyopaque, *Bus, u16, u8) void;
 
-        pub fn init(ptr: anytype, comptime read_callback: fn (ptr: @TypeOf(ptr), bus: *Bus, address: u16) u8, comptime write_callback: fn (ptr: @TypeOf(ptr), bus: *Bus, address: u16, data: u8) void) Self {
+        pub fn init(
+            ptr: anytype, 
+            comptime read_callback: fn (ptr: @TypeOf(ptr), bus: *Bus, address: u16) u8, 
+            comptime write_callback: fn (ptr: @TypeOf(ptr), bus: *Bus, address: u16, data: u8) void
+        ) Self {
             const Ptr = @TypeOf(ptr);
             const ptr_info = @typeInfo(Ptr);
 
@@ -53,7 +56,11 @@ pub const Bus = struct {
         }
 
         /// Convenience function to generate callback function for disallowed reads
-        pub fn noRead(comptime Outer: type, comptime msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
+        pub fn noRead(
+            comptime Outer: type, 
+            comptime msg: []const u8, 
+            comptime log_params: bool
+        ) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
             return struct {
                 fn func(self: *Outer, bus: *Bus, address: u16) u8 {
                     _ = bus;
@@ -69,7 +76,11 @@ pub const Bus = struct {
         }
 
         /// Convenience function to generate callback function for disallowed writes
-        pub fn noWrite(comptime Outer: type, comptime msg: []const u8, comptime log_params: bool) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
+        pub fn noWrite(
+            comptime Outer: type, 
+            comptime msg: []const u8, 
+            comptime log_params: bool
+        ) fn (ptr: *Outer, bus: *Bus, address: u16, data: u8) void {
             return struct {
                 fn func(self: *Outer, bus: *Bus, address: u16, value: u8) void {
                     _ = bus;
