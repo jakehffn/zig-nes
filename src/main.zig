@@ -21,13 +21,15 @@ pub fn main() !void {
     defer ppu_bus.deinit(page_allocator);
     ppu_bus.setCallbacks();
 
-    var ppu = Ppu.init(&ppu_bus);
+    var ppu = try Ppu("./log/ZigNES_PPU.log").init(&ppu_bus);
+    defer ppu.deinit();
 
     var main_bus = try MainBus.init(page_allocator);
     defer main_bus.deinit(page_allocator);
     main_bus.setCallbacks(&ppu);
 
-    var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
+    // var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
+    var cpu = try Cpu(null).init(&main_bus);
     defer cpu.deinit();
 
     ppu.setMainBus(&main_bus);
@@ -68,6 +70,7 @@ pub fn main() !void {
     );
 
     var cpu_step_cycles: u32 = 0;
+    var controller_status: ControllerStatus = .{};
 
     mainloop: while (true) {
 
@@ -76,37 +79,36 @@ pub fn main() !void {
 
         if (main_bus.nmi) {
 
-            var controller_status: ControllerStatus = .{};
 
             var sdl_event: c.SDL_Event = undefined;
             while (c.SDL_PollEvent(&sdl_event) != 0) {
                 switch (sdl_event.type) {
                     c.SDL_QUIT => break :mainloop,
-                    c.SDL_KEYDOWN => {
+                    c.SDL_KEYDOWN, c.SDL_KEYUP => {
                         switch (sdl_event.key.keysym.sym) {
                             c.SDLK_w, c.SDLK_UP => {
-                                controller_status.up = 1;
+                                controller_status.up = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_a, c.SDLK_LEFT => {
-                                controller_status.left = 1;
+                                controller_status.left = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_s, c.SDLK_DOWN => {
-                                controller_status.down = 1;
+                                controller_status.down = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_d, c.SDLK_RIGHT => {
-                                controller_status.right = 1;
+                                controller_status.right = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_RETURN => {
-                                controller_status.start = 1;
+                                controller_status.start = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_SPACE => {
-                                controller_status.select = 1;
+                                controller_status.select = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_j => {
-                                controller_status.a = 1;
+                                controller_status.a = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             c.SDLK_k => {
-                                controller_status.b = 1;
+                                controller_status.b = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
                             },
                             else => {}
                         }
