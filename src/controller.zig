@@ -6,7 +6,7 @@ pub const Controller = struct {
 
     status: Status = .{},
     strobe_mode: bool = false,
-    current_input: u3 = 0,
+    current_input: u16 = 1,
     
     pub const Status = packed struct {
         b: u1 = 0,
@@ -22,12 +22,12 @@ pub const Controller = struct {
     fn read(self: *Self, bus: *Bus, address: u16) u8 {
         _ = address;
         _ = bus;
-        if (self.current_input > 7) {
+        if (self.current_input > (1 << 7)) {
             return 1;
         }
-        const is_pressed = (@as(u8, @bitCast(self.status)) & (@as(u8, 1) << self.current_input)) >> self.current_input;   
+        const is_pressed = @intFromBool((@as(u8, @bitCast(self.status)) & self.current_input) > 0);
         if (!self.strobe_mode) {
-            self.current_input += 1;
+            self.current_input <<= 1;
         }
         return is_pressed;
     }
@@ -37,7 +37,7 @@ pub const Controller = struct {
         _ = bus;
         self.strobe_mode = @bitCast(@as(u1, @truncate(value & 1)));
         if (self.strobe_mode) {
-            self.current_input = 0;
+            self.current_input = 1;
         }
     }
 
