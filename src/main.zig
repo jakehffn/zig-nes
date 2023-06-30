@@ -1,5 +1,5 @@
 const std = @import("std");
-const page_allocator = std.heap.page_allocator;
+const GPA = std.heap.GeneralPurposeAllocator;
 const c = @cImport({
     @cInclude("SDL.h");
 });
@@ -17,15 +17,18 @@ const Rom = @import("./rom.zig").Rom;
 const ControllerStatus = @import("./controller.zig").Controller.Status;
 
 pub fn main() !void {
-    var ppu_bus = try PpuBus.init(page_allocator);
-    defer ppu_bus.deinit(page_allocator);
+    var gpa = GPA(.{}){};
+    var allocator = gpa.allocator();
+
+    var ppu_bus = try PpuBus.init(allocator);
+    defer ppu_bus.deinit(allocator);
     ppu_bus.setCallbacks();
 
     var ppu = try Ppu("./log/ZigNES_PPU.log").init(&ppu_bus);
     defer ppu.deinit();
 
-    var main_bus = try MainBus.init(page_allocator);
-    defer main_bus.deinit(page_allocator);
+    var main_bus = try MainBus.init(allocator);
+    defer main_bus.deinit(allocator);
     main_bus.setCallbacks(&ppu);
 
     var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
@@ -34,13 +37,13 @@ pub fn main() !void {
 
     ppu.setMainBus(&main_bus);
 
-    var args = try std.process.argsWithAllocator(page_allocator);
+    var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
     _ = args.skip();
     var rom_path = args.next() orelse "./test-files/test-roms/nestest.nes";
     std.debug.print("Loading rom: {s}\n", .{rom_path});
 
-    var rom = Rom.init(page_allocator);
+    var rom = Rom.init(allocator);
     defer rom.deinit();
     try rom.load(rom_path);
 
