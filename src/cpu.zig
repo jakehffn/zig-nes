@@ -403,7 +403,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             var byte = Byte{ .raw = self.bus.readByte(self.pc)};
             const read_byte_addr = self.pc;
 
-            self.pc += 1;
+            self.pc +%= 1;
 
             var curr_instruction = getInstruction(byte);
             const operand_address = self.getOperandAddress(curr_instruction.addressing_mode);
@@ -481,30 +481,30 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .accumulator => 0,
                 .absolute => blk: {
                     const addr_low: u16 = self.bus.readByte(self.pc);
-                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
-                    self.pc += 2;
+                    const addr_high: u16 = self.bus.readByte(self.pc +% 1);
+                    self.pc +%= 2;
                     const addr: u16 = (addr_high << 8) | addr_low;
                     break :blk addr;
                 },
                 .absolute_x => blk: {
                     // TODO: Add cycle for page crossing
                     const addr_low: u16 = self.bus.readByte(self.pc);
-                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
-                    self.pc += 2;
+                    const addr_high: u16 = self.bus.readByte(self.pc +% 1);
+                    self.pc +%= 2;
                     const addr: u16 = ((addr_high << 8) | addr_low) +% self.x;
                     break :blk addr;
                 },
                 .absolute_y => blk: {
                     // TODO: Add cycle for page crossing
                     const addr_low: u16 = self.bus.readByte(self.pc);
-                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
-                    self.pc += 2;
+                    const addr_high: u16 = self.bus.readByte(self.pc +% 1);
+                    self.pc +%= 2;
                     const addr: u16 = ((addr_high << 8) | addr_low) +% self.y;
                     break :blk addr;
                 },
                 .immediate => blk: {
                     const addr = self.pc;
-                    self.pc += 1;
+                    self.pc +%= 1;
                     break :blk addr;
                 },
                 // Implied does not require an address or value
@@ -512,8 +512,8 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .indirect => blk: {
                     // Indirect is only used by the JMP instruction, so no need to get value
                     const addr_low: u8 = self.bus.readByte(self.pc);
-                    const addr_high: u16 = self.bus.readByte(self.pc + 1);
-                    self.pc += 2;
+                    const addr_high: u16 = self.bus.readByte(self.pc +% 1);
+                    self.pc +%= 2;
                     const target_addr_low: u16 = (addr_high << 8) | addr_low;
                     const target_addr_high: u16 = (addr_high << 8) | (addr_low +% 1);
                     const target_low: u16 = self.bus.readByte(target_addr_low);
@@ -523,7 +523,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 },
                 .indirect_x => blk: {
                     const indirect_addr = self.bus.readByte(self.pc) +% self.x;
-                    self.pc += 1;
+                    self.pc +%= 1;
                     const addr_low: u16 = self.bus.readByte(indirect_addr);
                     const addr_high: u16 = self.bus.readByte(indirect_addr +% 1);
                     const addr: u16 = (addr_high << 8) | addr_low;
@@ -532,7 +532,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .indirect_y => blk: {
                     // TODO: Add cycle for page crossing
                     const indirect_addr = self.bus.readByte(self.pc); 
-                    self.pc += 1;
+                    self.pc +%= 1;
                     const addr_low: u16 = self.bus.readByte(indirect_addr);
                     const addr_high: u16 = self.bus.readByte(indirect_addr +% 1);
                     const addr: u16 = ((addr_high << 8) | addr_low) +% @as(u16, self.y);
@@ -541,23 +541,23 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 .relative => blk: {
                     // Relative is only used by the branch instructions, so no need to get value
                     // Relative addressing adds a signed value to pc, so the values can be cast to signed integers to get signed addition
-                    const addr: u16 = @bitCast(@as(i8, @bitCast(self.bus.readByte(self.pc))) + @as(i16, @bitCast(self.pc)) + 1);
-                    self.pc += 1;
+                    const addr: u16 = @bitCast(@as(i8, @bitCast(self.bus.readByte(self.pc))) +% @as(i16, @bitCast(self.pc)) +% 1);
+                    self.pc +%= 1;
                     break :blk addr;
                 },
                 .zero_page => blk: { 
                     const addr = self.bus.readByte(self.pc);
-                    self.pc += 1;
+                    self.pc +%= 1;
                     break :blk addr;
                 },
                 .zero_page_x => blk: { 
                     const addr = self.bus.readByte(self.pc) +% self.x;
-                    self.pc += 1;
+                    self.pc +%= 1;
                     break :blk addr;
                 },
                 .zero_page_y => blk: {
                     const addr = self.bus.readByte(self.pc) +% self.y;
-                    self.pc += 1;
+                    self.pc +%= 1;
                     break :blk addr;
                 }
             };
@@ -566,11 +566,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         inline fn execute(self: *Self, mnem: Mnemonic, operand_address: u16) void {
             switch(mnem) { 
                 .ADC => { 
+                    const add_op = self.bus.readByte(operand_address);
                     const op = self.a;
-                    self.a = op +% self.bus.readByte(operand_address) +% self.flags.C;
+                    self.a = op +% add_op +% self.flags.C;
                     // Overflow occurs iff the result has a different sign than both operands
-                    self.flags.V = @truncate(((self.a ^ op) & (self.a ^ self.bus.readByte(operand_address))) >> 7);
-                    self.flags.C = @bitCast(self.a < self.bus.readByte(operand_address));
+                    self.flags.V = @truncate(((self.a ^ op) & (self.a ^ add_op)) >> 7);
+                    self.flags.C = @bitCast(self.a < (@as(u16, add_op) +% self.flags.C));
                     self.setFlagsNZ(self.a);
                 },
                 .AND => {
@@ -626,13 +627,15 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     }
                 },
                 .BRK => {
-                    // TODO: Check this logic
-                    self.stackPush(@truncate(self.pc >> 8));
-                    self.stackPush(@truncate(self.pc));
+                    const stored_pc = self.pc +% 1;
+                    self.stackPush(@truncate(stored_pc >> 8));
+                    self.stackPush(@truncate(stored_pc));
+                    self.flags.B = 1;
                     self.stackPush(@bitCast(self.flags));
+                    self.flags.B = 0;
+                    self.flags.I = 1;
                     const addr_low: u16 = self.bus.readByte(0xFFFE);
                     const addr_high: u16 = self.bus.readByte(0xFFFF);
-                    self.flags.B = 1;
                     self.pc = (addr_high << 8) | addr_low;
                 },
                 .BVC => {
@@ -710,7 +713,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     self.branch(operand_address);
                 },
                 .JSR => {
-                    var stored_pc = self.pc -% 1;
+                    const stored_pc = self.pc -% 1;
                     self.stackPush(@truncate(stored_pc >> 8));
                     self.stackPush(@truncate(stored_pc));
                     self.pc = operand_address;
@@ -771,8 +774,9 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     self.setFlagsNZ(res);
                 },
                 .ROL_acc => {                
+                    const res = (self.a << 1) | self.flags.C;
                     self.flags.C = @truncate(self.a >> 7);
-                    self.a = (self.a << 1) | self.flags.C;
+                    self.a = res;
                     self.setFlagsNZ(self.a); 
                 },
                 .ROR => {
@@ -808,7 +812,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     // Overflow will occur iff the operands have different signs, and 
                     //      the result has a different sign than the minuend
                     self.flags.V = @truncate(((op ^ sub_op) & (op ^ self.a)) >> 7);
-                    self.flags.C = @bitCast((sub_op +% (1 - self.flags.C)) <= op);
+                    self.flags.C = @bitCast((@as(u16, sub_op) +% (1 - self.flags.C)) <= op);
                     self.setFlagsNZ(self.a);
                 },
                 .SEC => {
