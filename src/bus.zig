@@ -132,17 +132,28 @@ pub const Bus = struct {
         }
     }
 
+    /// Set a single callback with the address_offset set to the address parameter
     pub fn setCallback(self: *Bus, bus_callback: BusCallback, address: u16) void {
         var bc = bus_callback;
         bc.address_offset = address;
         self.bus_callbacks[address] = bc;
     }
 
+    /// Set all callbacks in a range with the address_offset set to the start_address of the range
     pub fn setCallbacks(self: *Bus, bus_callback: BusCallback, start_address: u16, end_address: u17) void {
         assert(start_address <= end_address);
 
         var bc = bus_callback;
         bc.address_offset = start_address;
         @memset(self.bus_callbacks[start_address..end_address], bc);
+    }
+
+    /// Set all callbacks in the array with the address_offsets set to the first element of the array
+    pub fn setCallbacksArray(self: *Bus, bus_callback: BusCallback, addresses: []const u16) void {
+        var bc = bus_callback;
+        bc.address_offset = addresses[0];
+        for (addresses) |address| {
+            self.bus_callbacks[address] = bc;
+        }
     }
 };

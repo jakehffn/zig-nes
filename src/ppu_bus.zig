@@ -41,14 +41,14 @@ pub const PpuBus = struct {
             0x3F00, 0x3F20
         );
 
-        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F10);
-        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F14);
-        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F18);
-        self.bus.setCallback(self.background_palette_first_byte_mirrors.busCallback(), 0x3F1C);
-
         self.bus.setCallbacks(
             self.palette_ram_indices_mirrors.busCallback(), 
             0x3F20, 0x4000
+        );
+
+        self.bus.setCallbacksArray(
+            self.background_palette_first_byte_mirrors.busCallback(), 
+            &[_]u16{0x3F10, 0x3F14, 0x3F18, 0x3F1C}
         );
     }
 
