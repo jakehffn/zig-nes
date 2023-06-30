@@ -23,6 +23,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         total_cycles: u32 = 0,
         step_cycles: u32 = 0,
         log_file: std.fs.File,
+        should_log: bool = false,
 
         /// CPU status register layout
         /// 
@@ -408,14 +409,16 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             const operand_address = self.getOperandAddress(curr_instruction.addressing_mode);
             
             if (debug_log_file_path) |_| {
-                self.log_file.writer().print("{any}\n", .{StepLogData{
-                    .pc = read_byte_addr,
-                    .mnemonic = curr_instruction.mnemonic,
-                    .addressing_mode = curr_instruction.addressing_mode,
-                    .operand_address = operand_address,
-                    .is_address_read = false,
-                    .cpu = self
-                }}) catch {};
+                if (self.should_log) {
+                    self.log_file.writer().print("{any}\n", .{StepLogData{
+                        .pc = read_byte_addr,
+                        .mnemonic = curr_instruction.mnemonic,
+                        .addressing_mode = curr_instruction.addressing_mode,
+                        .operand_address = operand_address,
+                        .is_address_read = false,
+                        .cpu = self
+                    }}) catch {};
+                }
             }
 
             self.step_cycles += opcode_cycles[byte.raw];

@@ -126,6 +126,9 @@ pub const Bus = struct {
 
     pub fn writeByte(self: *Bus, address: u16, value: u8) void {
         if (self.bus_callbacks[address]) |bc| {
+            if ((address == 0x721 or address == 0x729) and value == 0) {
+                std.debug.print("",.{});
+            }
             bc.writeCallback(self, address, value);
         } else {
             std.log.info("Bus::Undefined write: No bus callbacks at address {X}", .{address});

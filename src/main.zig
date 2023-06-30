@@ -28,8 +28,8 @@ pub fn main() !void {
     defer main_bus.deinit(page_allocator);
     main_bus.setCallbacks(&ppu);
 
-    // var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
-    var cpu = try Cpu(null).init(&main_bus);
+    var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
+    // var cpu = try Cpu(null).init(&main_bus);
     defer cpu.deinit();
 
     ppu.setMainBus(&main_bus);
@@ -37,7 +37,7 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(page_allocator);
     defer args.deinit();
     _ = args.skip();
-    var rom_path = args.next() orelse "./test-files/nestest.nes";
+    var rom_path = args.next() orelse "./test-files/test-roms/nestest.nes";
     std.debug.print("Loading rom: {s}\n", .{rom_path});
 
     var rom = Rom.init(page_allocator);
@@ -109,6 +109,9 @@ pub fn main() !void {
                             },
                             c.SDLK_k => {
                                 controller_status.b = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                            },
+                            c.SDLK_l => {
+                                cpu.should_log = sdl_event.type == c.SDL_KEYDOWN;
                             },
                             else => {}
                         }

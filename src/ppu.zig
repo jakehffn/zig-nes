@@ -16,7 +16,7 @@ const LoggingBusCallback = struct {
         return struct {
             fn func(self: Outer, bus: *Bus, address: u16) u8 {
                 if (self.log_file) |file| { 
-                    file.writer().print(name ++ " READ ${X}\n", .{address}) catch {};
+                    file.writer().print(name ++ (" " ** (10 - name.len)) ++ " READ  ${X:0>4}\n", .{address}) catch {};
                 }
                 return @call(.always_inline, read_callback, .{self, bus, address});
             }
@@ -31,7 +31,7 @@ const LoggingBusCallback = struct {
         return struct {
             fn func(self: Outer, bus: *Bus, address: u16, value: u8) void {
                 if (self.log_file) |file| {
-                    file.writer().print(name ++ " WRITE ${X} 0x{X}\n", .{address, value}) catch {};
+                    file.writer().print(name ++ (" " ** (10 - name.len)) ++ " WRITE ${X:0>4} 0x{X:0>2}\n", .{address, value}) catch {};
                 }
                 @call(.always_inline, write_callback, .{self, bus, address, value});
             }
@@ -90,7 +90,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *ControlRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "PPUCTRL",
                     @fieldParentPtr(Self, "controller_register", self),
                     BusCallback.noRead(Self, "PPU::Cannot read from PPU controller register", false),
                     ControlRegister.write
@@ -110,7 +111,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *MaskRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "PPUMASK",
                     @fieldParentPtr(Self, "mask_register", self),
                     BusCallback.noRead(Self, "PPU::Cannot read from PPU mask register", false),
                     MaskRegister.write
@@ -131,7 +133,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *StatusRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "PPUSTATUS",
                     @fieldParentPtr(Self, "status_register", self),
                     StatusRegister.read,
                     BusCallback.noWrite(Self, "PPU::Cannot write to PPU status register", false)
@@ -152,7 +155,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *OamAddressRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "OAMADDR",
                     @fieldParentPtr(Self, "oam_address_register", self), 
                     BusCallback.noRead(Self, "PPU::Cannot read from PPU oam address register", false),
                     OamAddressRegister.write
@@ -175,13 +179,13 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 if (ppu.status_register.flags.V == 0) {
                     return;
                 }
-                const addr = ppu.oam_address_register.address;
+                ppu.oam[ppu.oam_address_register.address] = value;
                 ppu.oam_address_register.address +%= 1;
-                ppu.oam[addr] = value;
             }
 
             pub fn busCallback(self: *OamDataRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "OAMDATA",
                     @fieldParentPtr(Self, "oam_data_register", self), 
                     OamDataRegister.read,
                     OamDataRegister.write
@@ -210,7 +214,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *ScrollRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "PPUSCROLL",
                     @fieldParentPtr(Self, "scroll_register", self), 
                     BusCallback.noRead(Self, "PPU::Cannot read from PPU scroll register", false),
                     ScrollRegister.write
@@ -295,7 +300,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *DataRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "PPUDATA",
                     @fieldParentPtr(Self, "data_register", self),
                     DataRegister.read,
                     DataRegister.write
@@ -316,7 +322,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             pub fn busCallback(self: *OamDmaRegister) BusCallback {
-                return BusCallback.init(
+                return LoggingBusCallback.init(
+                    "OAMDMA",
                     @fieldParentPtr(Self, "oam_dma_register", self), 
                     BusCallback.noRead(Self, "PPU::Cannot read from PPU OAM DMA register", false),
                     OamDmaRegister.write
@@ -509,7 +516,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         fn getBackgroundPalette(self: *Self, tile_column: usize, tile_row : usize) [4]u8 {
             const attribute_table_index = (tile_row / 4) * 8 + (tile_column / 4);
-            var attribute_byte = self.bus.readByte(@truncate(0x2000 + 0x3C0 + attribute_table_index)); 
+            var attribute_byte = self.bus.readByte(@truncate(0x23C0 + 0x400 * @as(u16, self.controller_register.flags.N) + attribute_table_index)); 
 
             const palette_index = switch (@as(u2, @truncate((((tile_row % 4) & 2) + ((tile_column % 4) / 2))))) {
                 0 => attribute_byte & 0b11,
@@ -528,23 +535,54 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             return [_]u8{self.bus.readByte(palette_offset), self.bus.readByte(palette_offset + 1), self.bus.readByte(palette_offset + 2)};
         }
 
+        /// Draws palette for debugging
+        fn drawPalette(self: *Self) void {
+            const left_offset = 8;
+            const border = 2;
+            var border_color = palette[5];
+            // 8 palettes
+            for (0..8) |palette_index| {
+                for (0..3) |palette_color_index| {
+                    const color_index = self.bus.readByte(
+                        0x3F01 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
+                    );
+                    var pixel = palette[color_index];
+                    for (0..11 + border*2) |y| {
+                        const iy: i16 = @bitCast(@as(u16, @truncate(y)));
+                        const pixel_y: u16 = @bitCast(239 - 8 - border - iy);
+                        for (0..11 + border*2) |x| {
+                            const ix: i16 = @bitCast(@as(u16, @truncate(x)));
+                            const pixel_x: u16 = @bitCast(@as(i16, @bitCast(@as(u16, @truncate(left_offset - border + (30 * palette_index) + (10 * palette_color_index))))) + ix);
+                            
+                            if (iy - border < 0 or iy - border >= 10 or (ix - border < 0 and (palette_color_index + palette_index == 0)) or (ix - border >= 10 and (palette_color_index + palette_index == 9))) {
+                                self.screen.setPixel(pixel_x, pixel_y, &border_color);
+                            } else {
+                                self.screen.setPixel(pixel_x, pixel_y, &pixel);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         pub fn render(self: *Self) void {
             const background_bank: u16 = self.controller_register.flags.B;
 
             // Drawing Background
             // The screen is filled with 960 tiles
             for (0..960) |i| {
-                const tile: u16 = self.bus.readByte(0x2000  + @as(u16, @truncate(i)));
+                const tile: u16 = self.bus.readByte(0x2000 + 0x400 * @as(u16, self.controller_register.flags.N) + @as(u16, @truncate(i)));
                 const tile_x = i % 32;
                 const tile_y = i / 32;
                 const base_offset = (background_bank * 0x1000) + (tile * 16);
+                // const base_offset = @as(u16, @truncate(i)) * 16;
 
                 const bg_palette = self.getBackgroundPalette(tile_x, tile_y);
                 // std.debug.print("Palette: Bg:{} 0:{} 1:{} 2:{}\n", .{bg_palette[0], bg_palette[1], bg_palette[2], bg_palette[3]});
 
                 for (0..8) |y| {
-                    var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
-                    var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
+                    var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
+                    var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
 
                     for (0..8) |x| {
                         const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
@@ -561,22 +599,24 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             
             for (0..self.oam.len/4) |i| {
                 const sprite_index = i * 4;
-                const tile: u16 = self.oam[sprite_index + 1];
-                const tile_x = self.oam[sprite_index + 3];
                 const tile_y = self.oam[sprite_index];
-                const flip_vertical = self.oam[sprite_index + 2] >> 7 & 1 == 1;
-                const flip_horizontal = self.oam[sprite_index + 2] >> 6 & 1 == 1;
+                const tile: u16 = self.oam[sprite_index + 1];
                 const palette_id: u2 = @truncate(self.oam[sprite_index + 2]);
                 const sprite_palette = self.getSpritePalette(palette_id);
-                const base_offset = (sprite_bank * 0x1000) + (tile * 16);
+                const flip_horizontal = self.oam[sprite_index + 2] >> 6 & 1 == 1;
+                const flip_vertical = self.oam[sprite_index + 2] >> 7 & 1 == 1;
+                const tile_x = self.oam[sprite_index + 3];
+
 
                 if (tile_y >= 0xEF) {
                     continue;
                 }
 
+                const base_offset = (sprite_bank * 0x1000) + (tile * 16);
+
                 for (0..8) |y| {
-                    var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
-                    var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
+                    var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
+                    var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
 
                     for (0..8) |x| {
                         const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
@@ -585,7 +625,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         if (val == 0) {
                             continue;
                         }
-                        var pixel = palette[sprite_palette[val - 1]];
+                        var pixel = palette[sprite_palette[val-1]];
                         const x_offset = if (flip_horizontal) x else (7 - x);
                         const y_offset = if (flip_vertical) (7 - y) else y;
                         self.screen.setPixel(tile_x + x_offset, tile_y + y_offset, &pixel);
