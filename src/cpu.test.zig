@@ -1,136 +1,145 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const page_allocator = std.heap.page_allocator;
-
+const allocator = std.testing.allocator;
 
 const Cpu = @import("./cpu.zig").Cpu;
 const Bus = @import("./bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
 const Ram = @import("./ram.zig").Ram;
 
+const OpCodeError = error {
+    UnexpectedBehaviour
+};
+
 const TestEnv = struct {
     const Self = @This();
+
+    const CpuState = struct {
+        pc: u16,
+        s: u8,
+        a: u8,
+        x: u8,
+        y: u8,
+        p: u8,
+        /// address, value
+        ram: ?[]struct {u16, u8},
+    };
+
+    const Test = struct {
+        name: []const u8,
+        initial: CpuState,
+        final: CpuState,
+        cycles: []const Cycle,
+        const Cycle = struct {u16, u8, []const u8};
+    };
 
     bus: Bus,
     cpu: Cpu(null),
     unused: bool = false,
 
-    pub fn init(comptime ram_size: usize, ram: *Ram(ram_size)) !TestEnv {
+    fn init(ram: *Ram(0x10000)) !TestEnv {
         return .{
-            .bus = try Bus.init(page_allocator, ram_size, ram.busCallback()),
+            .bus = try Bus.init(allocator, 0x10000, ram.busCallback()),
             .cpu = undefined,
         };
     }
 
-    pub fn initCpu(self: *Self) void {
+    fn initCpu(self: *Self) void {
         self.cpu = Cpu(null).initWithTestBus(&self.bus, &self.unused) catch unreachable;
     }
-    
-    pub fn writeNext(self: *Self, data: []const u8) void {
-        for (data, 0..) |byte, i| {
-            self.bus.writeByte(self.cpu.pc + @as(u16, @intCast(i)), byte);
+
+    fn deinit(self: *Self) void {
+        self.cpu.deinit();
+        self.bus.deinit(allocator);
+    }
+
+    fn setState(env: *TestEnv, state: CpuState) void {
+        env.cpu.pc = state.pc;
+        env.cpu.sp = state.s;
+        env.cpu.a = state.a;
+        env.cpu.x = state.x;
+        env.cpu.y = state.y;
+        env.cpu.flags = @bitCast(state.p);
+
+        for (state.ram orelse unreachable) |data| {
+            env.bus.writeByte(data[0], data[1]);
         }
     }
 
-    pub fn writeStepExpectA(self: *Self, data: []const u8, expect_a_val: u8) !void {
-        self.writeNext(data);
-        _ = self.cpu.step();
-        try expect(self.cpu.a == expect_a_val);
+    fn checkState(env: *TestEnv, state: CpuState) bool {
+        var is_correct = true;
+        is_correct = is_correct and env.cpu.pc == state.pc;
+        is_correct = is_correct and env.cpu.sp == state.s;
+        is_correct = is_correct and env.cpu.a == state.a;
+        is_correct = is_correct and env.cpu.x == state.x;
+        is_correct = is_correct and env.cpu.y == state.y;
+        is_correct = is_correct and @as(u8, @bitCast(env.cpu.flags)) == state.p;
+
+        for (state.ram orelse unreachable) |data| {
+            is_correct = is_correct and env.bus.readByte(data[0]) == data[1];
+        }
+
+        return is_correct;
     }
 
-    pub fn testWithEnv(comptime ram_size: usize, init_pc: u16, testFn: *const fn (*TestEnv) anyerror!void) !void {
-        var test_memory = Ram(ram_size){};
-        var test_env = try TestEnv.init(ram_size, &test_memory);
+    fn printFailure(env: *TestEnv, test_num: usize, initial: CpuState, expected: CpuState) void {
+        std.debug.print("\nFailed Test {}:\n\tInitial: {}\n\tExpected: {}\n\tActual: ", .{test_num, initial, expected});
+        std.debug.print("{}\n", .{
+            CpuState{
+                .pc = env.cpu.pc, 
+                .s = env.cpu.sp, 
+                .a = env.cpu.a, 
+                .x = env.cpu.x, 
+                .y = env.cpu.y, 
+                .p = @as(u8, @bitCast(env.cpu.flags)),
+                .ram = null
+            },
+        });
+        for (expected.ram orelse unreachable) |data| {
+            const value = env.bus.readByte(data[0]);
+            std.debug.print("\t${X:0>4}: 0x{X:0>2}\tEx: 0x{X:0>2}\n", .{data[0], value, data[1]});
+        }
+    }
+
+    pub fn testOpcode(opcode_tests_path: []const u8) !void {
+        // Load the json tests
+        // The largest test file is ~5000 KB
+        const tests_file = try std.fs.cwd().readFileAlloc(allocator, opcode_tests_path, 5500 * 1000);
+        defer allocator.free(tests_file);
+  
+        var tests_json = try std.json.parseFromSlice([]const Test, allocator, tests_file, .{});
+        defer tests_json.deinit();
+
+        // Prepare the test environment
+        var test_memory = Ram(0x10000){};
+        var test_env = try TestEnv.init(&test_memory);
+        defer test_env.deinit();
         test_env.initCpu();
 
-        test_env.cpu.pc = init_pc;
+        var num_not_passed: u16 = 0;
 
-        try testFn(&test_env);
+        for (0..tests_json.value.len) |i| {
+            const case = tests_json.value[i];
+
+            setState(&test_env, case.initial);
+            _ = test_env.cpu.step();
+            const passed = checkState(&test_env, case.final);
+
+            if (!passed) {
+                num_not_passed += 1;
+                printFailure(&test_env, i, case.initial, case.final);
+            }
+        }
+
+        std.debug.print("\n{s}: Passed {}/{} tests\n", .{opcode_tests_path, tests_json.value.len - num_not_passed, tests_json.value.len});
+        if (num_not_passed > 0) {
+            return OpCodeError.UnexpectedBehaviour;
+        }
     }
 };
 
-test "Immediate" {
-    try TestEnv.testWithEnv(0x10, 0x0, struct {
-        pub fn testFn(test_env: *TestEnv) !void {
-            // ADC
-            test_env.cpu.a = 3;
-            try test_env.writeStepExpectA(&[_]u8{0x69, 2}, 5);
-        }
-    }.testFn);
-}
+const tests_path = "./test-files/tom_harte_nes6502/v1/";
 
-test "ADC" {
-    try TestEnv.testWithEnv(0x4000, 0x2000, struct {
-        pub fn testFn(test_env: *TestEnv) !void {
-            // Immediate
-            test_env.cpu.a = 3;
-            try test_env.writeStepExpectA(&[_]u8{0x69, 2}, 5);
-
-            // Zero Page
-            test_env.bus.writeByte(0x0080, 4);
-            try test_env.writeStepExpectA(&[_]u8{0x65, 0x80}, 9);
-
-            //Zero Page X
-            test_env.cpu.x = 0x20;
-            // 0x20 + 0x60 will refer to the previously written 4 at 0x80
-            try test_env.writeStepExpectA(&[_]u8{0x75, 0x60}, 13);
-
-            // Absolute
-            test_env.bus.writeByte(0x1234, 20);
-            try test_env.writeStepExpectA(&[_]u8{0x6D, 0x34, 0x12}, 33);
-
-            // Absolute X
-            test_env.cpu.x = 0x34;
-            // 0x1200 + 0x34 will refer to the previously written 20 at 0x1234
-            try test_env.writeStepExpectA(&[_]u8{0x7D, 0x00, 0x12}, 53);
-        
-            // Absolute Y
-            test_env.cpu.y = 0x34;
-            // 0x1200 + 0x34 will refer to the previously written 20 at 0x1234
-            try test_env.writeStepExpectA(&[_]u8{0x79, 0x00, 0x12}, 73);
-
-            // Indexed Indirect
-            test_env.cpu.x = 0x0F;
-            test_env.bus.writeByte(0x0010, 0x34);
-            test_env.bus.writeByte(0x0011, 0x12);
-            try test_env.writeStepExpectA(&[_]u8{0x61, 0x01}, 93);
-
-            // Indirect Indexed
-            test_env.cpu.y = 0xFF;
-            test_env.bus.writeByte(0x0010, 0x35);
-            test_env.bus.writeByte(0x0011, 0x11);
-            // 0x35 + 0xFF = 0x34 + C
-            // 0x11 + C = 0x12
-            // $0x1234 = 20
-            try test_env.writeStepExpectA(&[_]u8{0x71, 0x10}, 113);
-
-            // Flags
-
-            // Negative and overflow
-            test_env.cpu.a = 0b0111_1111;
-            test_env.writeNext(&[_]u8{0x69, 1});
-            _ = test_env.cpu.step();
-
-            try expect(test_env.cpu.flags.N == 1);
-            try expect(test_env.cpu.flags.V == 1);
-
-            // Zero and carry
-            test_env.cpu.a = 0xFF;
-            test_env.writeNext(&[_]u8{0x69, 1});
-            _ = test_env.cpu.step();
-
-            try expect(test_env.cpu.flags.Z == 1);
-            try expect(test_env.cpu.flags.C == 1);
-        }
-    }.testFn);
-}
-
-test "AND" {
-    try TestEnv.testWithEnv(0x20, 0x10, struct {
-        pub fn testFn(test_env: *TestEnv) !void {
-            // Immediate
-            test_env.cpu.a = 0b1111_0000;
-            try test_env.writeStepExpectA(&[_]u8{0x29, 0b0011_0011}, 0b0011_0000);
-        }
-    }.testFn);
+test "ADC Immediate" {
+    try TestEnv.testOpcode(tests_path ++ "69.json");
 }
