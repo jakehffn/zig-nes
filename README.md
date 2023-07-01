@@ -2,7 +2,7 @@
 
 **NES emulator written in Zig**
 
-Currently, only the NROM mapper is supported, and PPU scrolling has not yet been implemented (but should be implemented soon!). 
+Currently, only the NROM mapper is supported. PPU scrolling and sound have not yet been implemented (but should be implemented soon!). 
 
 Games with static screen and limited scrolling, like Donkey Kong and PacMan, can be emulated pretty well.
 
