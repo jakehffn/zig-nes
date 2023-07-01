@@ -4,17 +4,17 @@ const c = @cImport({
     @cInclude("SDL.h");
 });
 
-const MainBus = @import("./main_bus.zig").MainBus;
-const Cpu = @import("./cpu.zig").Cpu;
+const MainBus = @import("./cpu/main_bus.zig").MainBus;
+const Cpu = @import("./cpu/cpu.zig").Cpu;
 
-const PpuBus = @import("./ppu_bus.zig").PpuBus;
-const Ppu = @import("./ppu.zig").Ppu;
+const PpuBus = @import("./ppu/ppu_bus.zig").PpuBus;
+const Ppu = @import("./ppu/ppu.zig").Ppu;
 
-const Ram = @import("./ram.zig").Ram;
-const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
-const Rom = @import("./rom.zig").Rom;
+const Ram = @import("./bus/ram.zig").Ram;
+const MemoryMirror = @import("./bus/memory_mirror.zig").MemoryMirror;
+const Rom = @import("./rom/rom.zig").Rom;
 
-const ControllerStatus = @import("./controller.zig").Controller.Status;
+const ControllerStatus = @import("./bus/controller.zig").Controller.Status;
 
 pub fn main() !void {
     var gpa = GPA(.{}){};

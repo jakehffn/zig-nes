@@ -1,3 +1,3 @@
 comptime {
-    _ = @import("./cpu.test.zig");
+    _ = @import("./cpu/cpu.test.zig");
 }

@@ -1,12 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("../bus/bus.zig").Bus;
 
-const Ram = @import("./ram.zig").Ram;
-const Rom = @import("./rom.zig").Rom;
-const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
-const MirroringRam = @import("./mirroring_ram.zig").MirroringRam;
+const Ram = @import("../bus/ram.zig").Ram;
+const Rom = @import("../rom/rom.zig").Rom;
+const MemoryMirror = @import("../bus/memory_mirror.zig").MemoryMirror;
+const MirroringRam = @import("../rom/mirroring_ram.zig").MirroringRam;
 
 pub const PpuBus = struct {
     const Self = @This();

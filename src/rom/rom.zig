@@ -2,7 +2,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("../bus/bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
 
 const MappedArray = struct {

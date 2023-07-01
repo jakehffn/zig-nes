@@ -5,12 +5,12 @@ const c = @cImport({
     @cInclude("SDL.h");
 });
 
-const Cpu = @import("./cpu.zig").Cpu;
-const Bus = @import("./bus.zig").Bus;
+const Cpu = @import("./cpu/cpu.zig").Cpu;
+const Bus = @import("./bus/bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
-const MainBus = @import("./main_bus.zig").MainBus;
-const Ram = @import("./ram.zig").Ram;
-const Rom = @import("./rom.zig").Rom;
+const MainBus = @import("./cpu/main_bus.zig").MainBus;
+const Ram = @import("./bus/ram.zig").Ram;
+const Rom = @import("./rom/rom.zig").Rom;
 
 pub const Snake = struct {
     pub const MappedRandomNumber = struct {

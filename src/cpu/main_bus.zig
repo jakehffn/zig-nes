@@ -1,13 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("../bus/bus.zig").Bus;
 
-const Ppu = @import("./ppu.zig").Ppu;
-const Ram = @import("./ram.zig").Ram;
-const Rom = @import("./rom.zig").Rom;
-const MemoryMirror = @import("./memory_mirror.zig").MemoryMirror;
-const Controller = @import("./controller.zig").Controller;
+const Ppu = @import("../ppu/ppu.zig").Ppu;
+const Ram = @import("../bus/ram.zig").Ram;
+const Rom = @import("../rom/rom.zig").Rom;
+const MemoryMirror = @import("../bus/memory_mirror.zig").MemoryMirror;
+const Controller = @import("../bus/controller.zig").Controller;
 
 pub const MainBus = struct {
     const Self = @This();

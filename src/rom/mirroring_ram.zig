@@ -1,7 +1,7 @@
 const std = @import("std");
 const panic = std.debug.panic;
 
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("../bus/bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
 const MirroringType = @import("./rom.zig").MirroringType;
 

@@ -3,9 +3,9 @@ const expect = std.testing.expect;
 const allocator = std.testing.allocator;
 
 const Cpu = @import("./cpu.zig").Cpu;
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("../bus//bus.zig").Bus;
 const BusCallback = Bus.BusCallback;
-const Ram = @import("./ram.zig").Ram;
+const Ram = @import("../bus/ram.zig").Ram;
 
 const OpCodeError = error {
     UnexpectedBehaviour
