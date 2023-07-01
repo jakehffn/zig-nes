@@ -55,11 +55,11 @@ const TestEnv = struct {
 
     fn setState(env: *TestEnv, state: CpuState) void {
         env.cpu.pc = state.pc;
-        env.cpu.sp = state.s;
+        env.cpu.s = state.s;
         env.cpu.a = state.a;
         env.cpu.x = state.x;
         env.cpu.y = state.y;
-        env.cpu.flags = @bitCast(state.p);
+        env.cpu.p = @bitCast(state.p);
 
         for (state.ram orelse unreachable) |data| {
             env.bus.writeByte(data[0], data[1]);
@@ -69,11 +69,11 @@ const TestEnv = struct {
     fn checkState(env: *TestEnv, state: CpuState) bool {
         var is_correct = true;
         is_correct = is_correct and env.cpu.pc == state.pc;
-        is_correct = is_correct and env.cpu.sp == state.s;
+        is_correct = is_correct and env.cpu.s == state.s;
         is_correct = is_correct and env.cpu.a == state.a;
         is_correct = is_correct and env.cpu.x == state.x;
         is_correct = is_correct and env.cpu.y == state.y;
-        is_correct = is_correct and @as(u8, @bitCast(env.cpu.flags)) == state.p;
+        is_correct = is_correct and @as(u8, @bitCast(env.cpu.p)) == state.p;
 
         for (state.ram orelse unreachable) |data| {
             is_correct = is_correct and env.bus.readByte(data[0]) == data[1];
@@ -87,11 +87,11 @@ const TestEnv = struct {
         std.debug.print("{}\n", .{
             CpuState{
                 .pc = env.cpu.pc, 
-                .s = env.cpu.sp, 
+                .s = env.cpu.s, 
                 .a = env.cpu.a, 
                 .x = env.cpu.x, 
                 .y = env.cpu.y, 
-                .p = @as(u8, @bitCast(env.cpu.flags)),
+                .p = @as(u8, @bitCast(env.cpu.p)),
                 .ram = null
             },
         });
