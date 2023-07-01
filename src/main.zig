@@ -32,7 +32,6 @@ pub fn main() !void {
     main_bus.setCallbacks(&ppu);
 
     var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
-    // var cpu = try Cpu(null).init(&main_bus);
     defer cpu.deinit();
 
     ppu.setMainBus(&main_bus);
@@ -40,12 +39,18 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
     _ = args.skip();
-    var rom_path = args.next() orelse "./test-files/test-roms/nestest.nes";
-    std.debug.print("Loading rom: {s}\n", .{rom_path});
+    var rom_path = args.next() orelse {
+        std.debug.print("ZigNES: Please provide the path to a ROM file", .{});
+        return;
+    };
+    std.debug.print("ZigNES: Loading rom: {s}\n", .{rom_path});
 
     var rom = Rom.init(allocator);
     defer rom.deinit();
-    try rom.load(rom_path);
+    rom.load(rom_path) catch {
+        std.debug.print("ZigNES: Unable to load ROM file", .{});
+        return;
+    };
 
     main_bus.loadRom(&rom);
     ppu_bus.loadRom(&rom);
@@ -81,8 +86,6 @@ pub fn main() !void {
         ppu.step(cpu_step_cycles);
 
         if (main_bus.nmi) {
-
-
             var sdl_event: c.SDL_Event = undefined;
             while (c.SDL_PollEvent(&sdl_event) != 0) {
                 switch (sdl_event.type) {
