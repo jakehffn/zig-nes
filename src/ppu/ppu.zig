@@ -63,6 +63,18 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         bus: *Bus,
         main_bus: *MainBus,
+        v: packed union {
+            value: u15,
+            bytes: packed struct {
+                low: u8,
+                high: u7
+            }
+        } = .{
+            .value = 0
+        }, // Current VRAM address
+        t: u15 = 0, // Temporary VRAM address
+        x: u3 = 0, // Fine X scroll
+        w: bool = true, // Write toggle; True when first write 
         /// Object attribute memory
         oam: [256]u8,
         total_cycles: u32 = 0,
@@ -128,7 +140,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             fn read(ppu: *Self, bus: *Bus, address: u16) u8 {
                 _ = address;
                 _ = bus;
-                ppu.address_register.high_latch = true;
+                ppu.w = true;
                 return @bitCast(ppu.status_register.flags);
             }
 
@@ -204,12 +216,12 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
                 _ = address;
                 _ = bus;
-                if (ppu.address_register.high_latch) {
+                if (ppu.w) {
                     ppu.scroll_register.offsets.horizontal = value;
                 } else {
                     ppu.scroll_register.offsets.vertical = value;
                 } 
-                ppu.address_register.high_latch = !ppu.address_register.high_latch;
+                ppu.w = !ppu.w;
 
             }
 
@@ -226,31 +238,20 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         address_register: struct {
             const AddressRegister = @This();
             
-            address: packed union {
-                value: u16,
-                bytes: packed struct {
-                    low: u8,
-                    high: u8
-                }
-            } = .{
-                .value = 0
-            },
-            high_latch: bool = true,
-
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
                 _ = bus;
                 _ = address;
-                if (ppu.address_register.high_latch) {
-                    ppu.address_register.address.bytes.high = value;
+                if (ppu.w) {
+                    ppu.v.bytes.high = @truncate(value);
                 } else {
-                    ppu.address_register.address.bytes.low = value;
+                    ppu.v.bytes.low = value;
                 } 
-                ppu.address_register.high_latch = !ppu.address_register.high_latch;
+                ppu.w = !ppu.w;
             }
 
             fn incrementAddress(ppu: *Self) void {
                 // Increment row or column based on the controller register increment flag
-                ppu.address_register.address.value +%= if (ppu.controller_register.flags.I == 0) 1 else 32;
+                ppu.v.value +%= if (ppu.controller_register.flags.I == 0) 1 else 32;
             }
 
             pub fn busCallback(self: *AddressRegister) BusCallback {
@@ -274,7 +275,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 // TODO: Read conflict with DPCM samples
                 _ = address; 
                 // Wrapping back to addressable range
-                var mirrored_address = ppu.address_register.address.value % 0x4000;
+                var mirrored_address = ppu.v.value % 0x4000;
                 // When reading palette data, the data is placed immediately on the bus
                 //  and the buffer instead is filled with the data from the nametables
                 //  as if the mirrors continued to the end of the address range
@@ -292,7 +293,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = bus;
                 _ = address;
                 // Wrapping back to addressable range
-                ppu.bus.writeByte(ppu.address_register.address.value % 0x4000, value);
+                ppu.bus.writeByte(ppu.v.value % 0x4000, value);
                 // if (ppu.address_register.address.value & 0x3FFF > 0x2FFF) {
                 //     std.debug.print("PPU::Wrote: 0x{X} to ${X}\n", .{value, ppu.address_register.address.value & 0x3FFF});
                 // }
