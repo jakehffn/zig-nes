@@ -331,99 +331,40 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         } = .{},
 
-        /// Various PPU control flags
-        /// 
-        /// **N**
-        /// Base nametable address
-        /// `0`: $2000; `1`: $2400; `2`: $2800; `3`: $2C00
-        /// 
-        /// **I**
-        /// VRAM addresss increment per CPU read/write of PPUDATA
-        /// `0`: add 1, going across; `1`: add 32, going down
-        /// 
-        /// **S**
-        /// Sprite pattern table address for 8x8 sprites
-        /// `0`: $0000; `1`: $1000
-        /// *Ignored in 8x16 mode*
-        /// 
-        /// **B**
-        /// Background pattern table address
-        /// `0`: $0000; `1`: $1000
-        /// 
-        /// **H**
-        /// Sprite size
-        /// `0`: 8x8 pixels; `1`: 8x16 pixels
-        /// 
-        /// **P**
-        /// PPU master/slave select
-        /// `0`: read backdrop from EXT pins; `1`: output color on EXT pins
-        /// 
-        /// **V**
-        /// Generate an NMI at the start of v-blank
-        /// `0`: off; `1`: on
         const ControlFlags = packed struct {
-            N: u2 = 0,
-            I: u1 = 0,
-            S: u1 = 0,
-            B: u1 = 0,
-            H: u1 = 0,
-            P: u1 = 0,
-            V: u1 = 0
+            N: u2 = 0, // Base nametable address
+                       // `0`: $2000; `1`: $2400; `2`: $2800; `3`: $2C00
+            I: u1 = 0, // VRAM addresss increment per CPU read/write of PPUDATA
+                       // `0`: add 1, going across; `1`: add 32, going down
+            S: u1 = 0, // Sprite pattern table address for 8x8 sprites
+                       // `0`: $0000; `1`: $1000
+                       // *Ignored in 8x16 mode*
+            B: u1 = 0, // Background pattern table address
+                       // `0`: $0000; `1`: $1000
+            H: u1 = 0, // Sprite size
+                       // `0`: 8x8 pixels; `1`: 8x16 pixels
+            P: u1 = 0, // PPU master/slave select
+                       // `0`: read backdrop from EXT pins; `1`: output color on EXT pins
+            V: u1 = 0  // Generate an NMI at the start of V-blank
+                       // `0`: off; `1`: on
         }; 
 
-        /// Various PPU mask flags
-        /// 
-        /// **G**
-        /// Greyscale
-        /// `0`: normal; `1`: greyscale
-        /// 
-        /// **m**
-        /// `0`: Show background in leftmost 8 pixels of screen; `1`: Hide
-        /// 
-        /// **M**
-        /// `0`: Show sprites in leftmost 8 pixels of screen; `1`: Hide 
-        /// 
-        /// **b**
-        /// `0`: Show background; `1`: Hide
-        /// 
-        /// **s**
-        /// `0`: Show spites; `1`: Hide
-        /// 
-        /// **R**
-        /// Emphasize red
-        /// 
-        /// **G**
-        /// Emphasize green
-        /// 
-        /// **B**
-        /// Emphasize blue
         const MaskFlags = packed struct {
-            Gr: u1 = 0,
-            m: u1 = 0,
-            M: u1 = 0, 
-            b: u1 = 0,
-            s: u1 = 0,
-            R: u1 = 0,
-            G: u1 = 0,
-            B: u1 = 0
+            Gr: u1 = 0, // `0`: normal; `1`: greyscale
+            m: u1 = 0,  // `0`: Show background in leftmost 8 pixels of screen; `1`: Hide
+            M: u1 = 0,  // `0`: Show sprites in leftmost 8 pixels of screen; `1`: Hide 
+            b: u1 = 0,  // `0`: Show background; `1`: Hide
+            s: u1 = 0,  // `0`: Show spites; `1`: Hide
+            R: u1 = 0,  // Emphasize red
+            G: u1 = 0,  // Emphasize green
+            B: u1 = 0   // Emphasize blue
         };
 
-        /// Reflects the state of PPU
-        /// 
-        /// **O**
-        /// Sprite overflow
-        /// 
-        /// **S**
-        /// Sprite 0 hit
-        /// Set when a nonzero pixel of sprite 0 overlaps a nonzero background pixel;
-        /// 
-        /// **V**
-        /// v-blank has started
         const StatusFlags = packed struct {
             _: u5 = 0,
-            O: u1 = 0,
-            S: u1 = 0,
-            V: u1 = 0
+            O: u1 = 0, // Indicate sprite overflow
+            S: u1 = 0, // Set when a nonzero pixel of sprite 0 overlaps a nonzero background pixel
+            V: u1 = 0, // V-blank has started
         };
 
         const Screen = struct {

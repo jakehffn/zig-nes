@@ -11,12 +11,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
     return struct {
         const Self = @This();
 
-        pc: u16 = 0xC000,
-        s: u8 = 0xFD, // Documented startup value
-        a: u8 = 0,
-        x: u8 = 0,
-        y: u8 = 0,
-        p: Flags = @bitCast(@as(u8, 0x24)),
+        pc: u16 = 0xC000,   // Program counter
+        s: u8 = 0xFD,       // Stack pointer
+        a: u8 = 0,          // Accumulator
+        x: u8 = 0,          // X register
+        y: u8 = 0,          // Y register
+        p: Flags = @bitCast(@as(u8, 0x24)), // Processor status flags
 
         bus: *Bus,
         nmi: *bool,
