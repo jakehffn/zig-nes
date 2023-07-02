@@ -63,7 +63,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         bus: *Bus,
         main_bus: *MainBus,
-        v: packed union {
+
+        v: u15 = 0, // Current VRAM address
+        t: packed union {
             value: u15,
             bytes: packed struct {
                 low: u8,
@@ -71,16 +73,16 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         } = .{
             .value = 0
-        }, // Current VRAM address
-        t: u15 = 0, // Temporary VRAM address
+        }, // Temporary VRAM address
         x: u3 = 0, // Fine X scroll
-        w: bool = true, // Write toggle; True when first write 
+        w: bool = true, // Write toggle; True when first write
+
+        scanline: u16 = 0,
+        dot: u16 = 0,
+        total_cycles: u32 = 0,
         /// Object attribute memory
         oam: [256]u8,
-        total_cycles: u32 = 0,
-        scanline: u16 = 0,
         screen: Screen,
-
         log_file: ?std.fs.File,
 
         // In CPU, mapped to:
@@ -208,18 +210,21 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         scroll_register: struct {
             const ScrollRegister = @This();
 
-            offsets: struct {
-                horizontal: u8 = 0,
-                vertical: u8 = 0
-            } = .{},
-
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
                 _ = address;
                 _ = bus;
                 if (ppu.w) {
-                    ppu.scroll_register.offsets.horizontal = value;
+                    // First write
+                    // t: ....... ...ABCDE <- d: ABCDE...
+                    // x:              FGH <- d: .....FGH
+                    // w:                  <- 1
+                    ppu.t.bytes.low = ppu.t.bytes.low | value >> 3;
+                    ppu.x = @truncate(value);
                 } else {
-                    ppu.scroll_register.offsets.vertical = value;
+                    // Second write
+                    // t: FGH..AB CDE..... <- d: ABCDEFGH
+                    // w:                  <- 0
+                    ppu.t.bytes.high = @truncate(((0b111 & value) << 4) | (ppu.t.bytes.high & 0b1100) | (value >> 6));
                 } 
                 ppu.w = !ppu.w;
 
@@ -242,16 +247,25 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = bus;
                 _ = address;
                 if (ppu.w) {
-                    ppu.v.bytes.high = @truncate(value);
+                    // First write
+                    // t: .CDEFGH ........ <- d: ..CDEFGH
+                    //        <unused>     <- d: AB......
+                    // t: Z...... ........ <- 0 (bit Z is cleared)
+                    // w:                  <- 1
+                    ppu.t.bytes.high = @truncate(value & 0x3F);
                 } else {
-                    ppu.v.bytes.low = value;
+                    // t: ....... ABCDEFGH <- d: ABCDEFGH
+                    // v: <...all bits...> <- t: <...all bits...>
+                    // w:                  <- 0
+                    ppu.t.bytes.low = value;
+                    ppu.v = ppu.t.value;
                 } 
                 ppu.w = !ppu.w;
             }
 
             fn incrementAddress(ppu: *Self) void {
                 // Increment row or column based on the controller register increment flag
-                ppu.v.value +%= if (ppu.controller_register.flags.I == 0) 1 else 32;
+                ppu.v +%= if (ppu.controller_register.flags.I == 0) 1 else 32;
             }
 
             pub fn busCallback(self: *AddressRegister) BusCallback {
@@ -275,7 +289,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 // TODO: Read conflict with DPCM samples
                 _ = address; 
                 // Wrapping back to addressable range
-                var mirrored_address = ppu.v.value % 0x4000;
+                var mirrored_address = ppu.v % 0x4000;
                 // When reading palette data, the data is placed immediately on the bus
                 //  and the buffer instead is filled with the data from the nametables
                 //  as if the mirrors continued to the end of the address range
@@ -293,7 +307,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = bus;
                 _ = address;
                 // Wrapping back to addressable range
-                ppu.bus.writeByte(ppu.v.value % 0x4000, value);
+                ppu.bus.writeByte(ppu.v % 0x4000, value);
                 // if (ppu.address_register.address.value & 0x3FFF > 0x2FFF) {
                 //     std.debug.print("PPU::Wrote: 0x{X} to ${X}\n", .{value, ppu.address_register.address.value & 0x3FFF});
                 // }
@@ -435,11 +449,12 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         }
 
         /// Takes the number of cycles of the last executed CPU instructions
-        pub fn step(self: *Self, cpu_cycles: u32) void {
-            self.total_cycles += 3*cpu_cycles;
+        pub fn step(self: *Self) void {
+            self.total_cycles +%= 1;
+            self.dot += 1;
 
-            if (self.total_cycles >= 341) {
-                self.total_cycles -= 341;
+            if (self.dot >= 341) {
+                self.dot -= 341;
                 self.scanline += 1;
 
                 if (self.scanline == 241) {

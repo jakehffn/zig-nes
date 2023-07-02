@@ -78,60 +78,66 @@ pub fn main() !void {
     );
 
     var cpu_step_cycles: u32 = 0;
+    _ = cpu_step_cycles;
     var controller_status: ControllerStatus = .{};
 
     mainloop: while (true) {
 
-        cpu_step_cycles = cpu.step();
-        ppu.step(cpu_step_cycles);
+        // This is about a frame
+        // In the future, it would be nice to implement a PPU stack
 
-        if (main_bus.nmi) {
-            var sdl_event: c.SDL_Event = undefined;
-            while (c.SDL_PollEvent(&sdl_event) != 0) {
-                switch (sdl_event.type) {
-                    c.SDL_QUIT => break :mainloop,
-                    c.SDL_KEYDOWN, c.SDL_KEYUP => {
-                        switch (sdl_event.key.keysym.sym) {
-                            c.SDLK_w, c.SDLK_UP => {
-                                controller_status.up = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_a, c.SDLK_LEFT => {
-                                controller_status.left = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_s, c.SDLK_DOWN => {
-                                controller_status.down = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_d, c.SDLK_RIGHT => {
-                                controller_status.right = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_RETURN => {
-                                controller_status.start = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_SPACE => {
-                                controller_status.select = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_j => {
-                                controller_status.a = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_k => {
-                                controller_status.b = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
-                            },
-                            c.SDLK_l => {
-                                cpu.should_log = sdl_event.type == c.SDL_KEYDOWN;
-                            },
-                            else => {}
-                        }
-                    },
-                    else => {},
-                }
-            }
-
-            main_bus.controller.status = controller_status;
-
-            ppu.render();
-            _ = c.SDL_UpdateTexture(texture, null, &ppu.screen.data, 256*3);
-            _ = c.SDL_RenderCopy(renderer, texture, null, null);
-            c.SDL_RenderPresent(renderer);
+        for (0..29780) |_| {
+            cpu.step();
+            ppu.step();
+            ppu.step();
+            ppu.step();
         }
+
+        var sdl_event: c.SDL_Event = undefined;
+        while (c.SDL_PollEvent(&sdl_event) != 0) {
+            switch (sdl_event.type) {
+                c.SDL_QUIT => break :mainloop,
+                c.SDL_KEYDOWN, c.SDL_KEYUP => {
+                    switch (sdl_event.key.keysym.sym) {
+                        c.SDLK_w, c.SDLK_UP => {
+                            controller_status.up = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_a, c.SDLK_LEFT => {
+                            controller_status.left = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_s, c.SDLK_DOWN => {
+                            controller_status.down = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_d, c.SDLK_RIGHT => {
+                            controller_status.right = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_RETURN => {
+                            controller_status.start = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_SPACE => {
+                            controller_status.select = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_j => {
+                            controller_status.a = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_k => {
+                            controller_status.b = @bitCast(sdl_event.type == c.SDL_KEYDOWN);
+                        },
+                        c.SDLK_l => {
+                            cpu.should_log = sdl_event.type == c.SDL_KEYDOWN;
+                        },
+                        else => {}
+                    }
+                },
+                else => {},
+            }
+        }
+
+        main_bus.controller.status = controller_status;
+
+        ppu.render();
+        _ = c.SDL_UpdateTexture(texture, null, &ppu.screen.data, 256*3);
+        _ = c.SDL_RenderCopy(renderer, texture, null, null);
+        c.SDL_RenderPresent(renderer);
     }
 }

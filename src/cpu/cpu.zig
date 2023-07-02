@@ -20,8 +20,11 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
 
         bus: *Bus,
         nmi: *bool,
+
         total_cycles: u32 = 0,
-        step_cycles: u32 = 0,
+        step_cycles: u8 = 0,
+        wait_cycles: u8 = 0,
+
         log_file: std.fs.File,
         should_log: bool = false,
 
@@ -191,7 +194,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             self.pc = (addr_high << 8) | addr_low;
         }
 
-        pub fn step(self: *Self) u32 {
+        pub fn step(self: *Self) void {
+            if (self.wait_cycles > 0) {
+                self.wait_cycles -= 1;
+                return;
+            }
+
             self.step_cycles = 0;
 
             var opcode = self.bus.readByte(self.pc);
@@ -223,7 +231,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 self.nmiInterrupt();
             }
 
-            return self.step_cycles;
+            self.wait_cycles = self.step_cycles - 1;
         }
 
         fn nmiInterrupt(self: *Self) void {
