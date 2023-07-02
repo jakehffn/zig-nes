@@ -82,17 +82,14 @@ pub const Instruction = struct {
     addressing_mode: AddressingMode = .implied
 };
 
-pub const Byte = packed union {
-    raw: u8,    
-    data: packed struct {
-        group: u2,
-        addressing_mode: u3,
-        mnemonic: u3
-    }
+const Byte = packed struct {
+    group: u2,
+    addressing_mode: u3,
+    mnemonic: u3
 };
 
 // [mnemonic][group]
-pub const mnemonic = [8][3]?Mnemonic {
+const mnemonic = [8][3]?Mnemonic {
     [_]?Mnemonic {null, .ORA, .ASL},
     [_]?Mnemonic {.BIT, .AND, .ROL},
     [_]?Mnemonic {.JMP, .EOR, .LSR},
@@ -104,7 +101,7 @@ pub const mnemonic = [8][3]?Mnemonic {
 };
 
 // [addr_mode][group]
-pub const addressing_mode = [8][3]?AddressingMode {
+const addressing_mode = [8][3]?AddressingMode {
     [_]?AddressingMode {.immediate, .indirect_x, .immediate},
     [_]?AddressingMode {.zero_page, .zero_page, .zero_page},
     [_]?AddressingMode {null, .immediate, .accumulator},
@@ -167,11 +164,16 @@ pub const instruction_exception = init: {
     defaults[0x96] = .{.mnemonic = .STX, .addressing_mode = .zero_page_y};
     defaults[0xB6] = .{.mnemonic = .LDX, .addressing_mode = .zero_page_y};
     defaults[0xBE] = .{.mnemonic = .LDX, .addressing_mode = .absolute_y};
+    // Illegal opcodes
+    defaults[0x80] = .{.mnemonic = .NOP, .addressing_mode = .immediate}; // Just a two byte nop
+    defaults[0xFA] = .{.mnemonic = .NOP, .addressing_mode = .implied};
+    defaults[0xEB] = .{.mnemonic = .SBC, .addressing_mode = .immediate};
 
     break :init defaults;
 };
 
-pub const opcode_cycles = [0x100]u8 {
+// The number of cycles for each opcode
+pub const cycles = [0x100]u8 {
     7, 6, 0, 0, 0, 3, 5, 0, 3, 2, 2, 0, 0, 4, 6, 0,
     2, 5, 0, 0, 0, 4, 6, 0, 2, 4, 0, 0, 0, 4, 7, 0,
     6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 4, 4, 6, 0,
@@ -190,16 +192,25 @@ pub const opcode_cycles = [0x100]u8 {
     2, 5, 0, 0, 0, 4, 6, 0, 2, 4, 0, 0, 0, 4, 7, 0,
 };
 
-pub fn getInstruction(inst: Byte) Instruction {
+fn calcInstruction(opcode: u8) Instruction {
+    const byte: Byte = @bitCast(opcode);
     // Unmapped opcodes are treated as NOP
-    if (opcode_cycles[inst.raw] == 0) {
+    if (cycles[opcode] == 0) {
         return .{};
-    } 
+    }
 
     // Return NOP if the opcode is an exception or doesn't have a mapped mnemonic or addressing mode
-    return instruction_exception[inst.raw] orelse 
+    return instruction_exception[opcode] orelse 
         Instruction{
-            .mnemonic = mnemonic[inst.data.mnemonic][inst.data.group] orelse return .{},
-            .addressing_mode = addressing_mode[inst.data.addressing_mode][inst.data.group] orelse return .{}
+            .mnemonic = mnemonic[byte.mnemonic][byte.group] orelse return .{},
+            .addressing_mode = addressing_mode[byte.addressing_mode][byte.group] orelse return .{}
         };
 }
+
+pub const instructions = init: {
+    var arr = [_]Instruction{undefined}**0x100;
+    for (0..0x100) |opcode| {
+        arr[opcode] = calcInstruction(@truncate(opcode));
+    }
+    break :init arr; 
+};

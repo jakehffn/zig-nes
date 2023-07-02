@@ -194,12 +194,12 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
         pub fn step(self: *Self) u32 {
             self.step_cycles = 0;
 
-            var byte = OpCode.Byte{ .raw = self.bus.readByte(self.pc)};
+            var opcode = self.bus.readByte(self.pc);
             const read_byte_addr = self.pc;
 
             self.pc +%= 1;
 
-            var curr_instruction = OpCode.getInstruction(byte);
+            var curr_instruction = OpCode.instructions[opcode];
             const operand_address = self.getOperandAddress(curr_instruction.addressing_mode);
             
             if (debug_log_file_path) |_| {
@@ -215,7 +215,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 }
             }
 
-            self.step_cycles += OpCode.opcode_cycles[byte.raw];
+            self.step_cycles += OpCode.cycles[opcode];
             self.execute(curr_instruction.mnemonic, operand_address);
             self.total_cycles +%= self.step_cycles;
 
