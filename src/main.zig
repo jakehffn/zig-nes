@@ -77,15 +77,13 @@ pub fn main() !void {
         240
     );
 
-    var cpu_step_cycles: u32 = 0;
-    _ = cpu_step_cycles;
     var controller_status: ControllerStatus = .{};
 
     mainloop: while (true) {
 
         // This is about a frame
         // In the future, it would be nice to implement a PPU stack
-
+        // Explained in this: https://gist.github.com/adamveld12/d0398717145a2c8dedab
         for (0..29780) |_| {
             cpu.step();
             ppu.step();
