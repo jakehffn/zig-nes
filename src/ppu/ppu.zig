@@ -70,6 +70,12 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             bytes: packed struct {
                 low: u8,
                 high: u7
+            },
+            scroll: packed struct {
+                coarse_x: u5,
+                coarse_y: u5,
+                nametable: u2,
+                fine_y: u3
             }
         } = .{
             .value = 0
@@ -79,6 +85,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         scanline: u16 = 0,
         dot: u16 = 0,
+        pre_render_dot_skip: bool = false,
         total_cycles: u32 = 0,
         /// Object attribute memory
         oam: [256]u8,
@@ -143,7 +150,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = address;
                 _ = bus;
                 ppu.w = true;
-                return @bitCast(ppu.status_register.flags);
+                const return_flags = ppu.status_register.flags;
+                // ppu.status_register.flags.V = 0;
+                return @bitCast(return_flags);
             }
 
             pub fn busCallback(self: *StatusRegister) BusCallback {
@@ -451,24 +460,83 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         /// Takes the number of cycles of the last executed CPU instructions
         pub fn step(self: *Self) void {
             self.total_cycles +%= 1;
+            // Every step one pixel should be drawn
             self.dot += 1;
 
-            if (self.dot >= 341) {
+            // Each scanline is 341 dots
+            if (self.dot == 341) {
                 self.dot -= 341;
                 self.scanline += 1;
-
-                if (self.scanline == 241) {
-                    self.status_register.flags.V = 1;
-                    if (self.controller_register.flags.V == 1) {
-                        self.main_bus.*.nmi = true;
-                    }
-                }
-
-                if (self.scanline >= 262) {
-                    self.scanline = 0;
-                    self.status_register.flags.V = 0;
-                }
             }
+
+            // Start scanline 0 after 263 scanlines
+            if (self.scanline == 262) {
+                self.scanline = 0;
+                self.status_register.flags.V = 0;
+            }
+
+            // // Pre-render scanline
+            // if (self.scanline == 261) {
+            //     // Dot 340 is skipped on every odd frame
+            //     if (self.dot == 339) {
+            //         if (self.pre_render_dot_skip and self.controller_register.flags.V == 1) {
+            //             self.dot += 1;
+            //         }
+            //         self.pre_render_dot_skip = !self.pre_render_dot_skip;
+            //     }
+
+            //     // Horizontal part of t is copied to v
+            //     if (self.dot > 280 and self.dot <= 304 and self.controller_register.flags.V == 1) {
+            //         self.v = (self.v ^ 0x7BE0) | (self.t.value & 0x7BE0);
+            //     }
+
+            //     return;
+            // }
+            
+            // if (self.scanline < 241) {
+            //     if (self.dot == 328 or self.dot == 336 or (self.dot % 8 == 0 and self.dot <= 256)) {
+            //         // Also from the nesdev wiki
+            //         if ((self.v & 0x001F) == 31) {
+            //             self.v &= ~@as(u15, 0x001F);
+            //             self.v ^= 0x0400;
+            //         } else {
+            //             self.v += 1;
+            //         }
+            //     }
+            // }
+
+            // Start of V-blank
+            if (self.scanline == 241) {
+                self.status_register.flags.V = 1;
+                // if (self.controller_register.flags.V == 1) {
+                    self.main_bus.*.nmi = true;
+                // }
+            }
+
+            // // Vertical part of v is incremented at dot 256 of each scanline
+            // // From the nesdev wiki
+            // if (self.dot == 256 and self.controller_register.flags.V == 1) {
+            //     if ((self.v & 0x7000) != 0x7000) {
+            //         self.v += 0x1000;
+            //     } else {
+            //         self.v &= ~@as(u15, 0x7000);
+            //         var y = (self.v & 0x03E0) >> 5;
+            //         if (y == 29) {
+            //             y = 0;
+            //             self.v ^= 0x0800;
+            //         } else if (y == 31) {
+            //             y = 0;
+            //         } else {
+            //             y += 1;
+            //         }
+            //         self.v = (self.v & ~@as(u15, 0x03E0)) | (y << 5);
+            //     }
+            // }
+
+            // // Horizontal position is copied from t to v dot 257 of each scanline
+            // if (self.dot == 257 and self.controller_register.flags.V == 1) {
+            //     self.v = (self.v ^ 0x41F) | (self.t.value & 0x41F);
+            // }
         }
 
         fn getBackgroundPalette(self: *Self, tile_column: usize, tile_row : usize) [4]u8 {
