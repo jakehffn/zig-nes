@@ -151,7 +151,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = bus;
                 ppu.w = true;
                 const return_flags = ppu.status_register.flags;
-                // ppu.status_register.flags.V = 0;
+                ppu.status_register.flags.V = 0;
                 return @bitCast(return_flags);
             }
 
@@ -506,11 +506,11 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             // }
 
             // Start of V-blank
-            if (self.scanline == 241) {
+            if (self.scanline == 241 and self.dot == 1) {
                 self.status_register.flags.V = 1;
-                // if (self.controller_register.flags.V == 1) {
+                if (self.controller_register.flags.V == 1) {
                     self.main_bus.*.nmi = true;
-                // }
+                }
             }
 
             // // Vertical part of v is incremented at dot 256 of each scanline
