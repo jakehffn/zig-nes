@@ -459,6 +459,29 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         /// Takes the number of cycles of the last executed CPU instructions
         pub fn step(self: *Self) void {
+            self.dotIncrement();
+
+            if (self.scanline == 261) {
+                self.prerenderStep();
+            } else if (self.scanline < 241) {
+                self.renderStep();
+            } else {
+                // Start of V-blank
+                if (self.scanline == 241 and self.dot == 1) {
+                    self.status_register.flags.V = 1;
+                    if (self.controller_register.flags.V == 1) {
+                        self.main_bus.*.nmi = true;
+                    }
+                }
+            }    
+
+            // Horizontal position is copied from t to v dot 257 of each scanline
+            if (self.dot == 257 and self.controller_register.flags.V == 1) {
+                self.v = (self.v ^ 0x41F) | (self.t.value & 0x41F);
+            }
+        }
+
+        inline fn dotIncrement(self: *Self) void {
             self.total_cycles +%= 1;
             // Every step one pixel should be drawn
             self.dot += 1;
@@ -472,71 +495,76 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             // Start scanline 0 after 263 scanlines
             if (self.scanline == 262) {
                 self.scanline = 0;
+            }
+        }
+
+        inline fn prerenderStep(self: *Self) void {
+            if (self.dot == 1) {
                 self.status_register.flags.V = 0;
             }
-
-            // // Pre-render scanline
-            // if (self.scanline == 261) {
-            //     // Dot 340 is skipped on every odd frame
-            //     if (self.dot == 339) {
-            //         if (self.pre_render_dot_skip and self.controller_register.flags.V == 1) {
-            //             self.dot += 1;
-            //         }
-            //         self.pre_render_dot_skip = !self.pre_render_dot_skip;
-            //     }
-
-            //     // Horizontal part of t is copied to v
-            //     if (self.dot > 280 and self.dot <= 304 and self.controller_register.flags.V == 1) {
-            //         self.v = (self.v ^ 0x7BE0) | (self.t.value & 0x7BE0);
-            //     }
-
-            //     return;
-            // }
-            
-            // if (self.scanline < 241) {
-            //     if (self.dot == 328 or self.dot == 336 or (self.dot % 8 == 0 and self.dot <= 256)) {
-            //         // Also from the nesdev wiki
-            //         if ((self.v & 0x001F) == 31) {
-            //             self.v &= ~@as(u15, 0x001F);
-            //             self.v ^= 0x0400;
-            //         } else {
-            //             self.v += 1;
-            //         }
-            //     }
-            // }
-
-            // Start of V-blank
-            if (self.scanline == 241 and self.dot == 1) {
-                self.status_register.flags.V = 1;
-                if (self.controller_register.flags.V == 1) {
-                    self.main_bus.*.nmi = true;
-                }
+            // Horizontal part of t is copied to v
+            if (self.dot > 280 and self.dot <= 304 and self.controller_register.flags.V == 1) {
+                self.v = (self.v ^ 0x7BE0) | (self.t.value & 0x7BE0);
             }
 
-            // // Vertical part of v is incremented at dot 256 of each scanline
-            // // From the nesdev wiki
-            // if (self.dot == 256 and self.controller_register.flags.V == 1) {
-            //     if ((self.v & 0x7000) != 0x7000) {
-            //         self.v += 0x1000;
-            //     } else {
-            //         self.v &= ~@as(u15, 0x7000);
-            //         var y = (self.v & 0x03E0) >> 5;
-            //         if (y == 29) {
-            //             y = 0;
-            //             self.v ^= 0x0800;
-            //         } else if (y == 31) {
-            //             y = 0;
-            //         } else {
-            //             y += 1;
-            //         }
-            //         self.v = (self.v & ~@as(u15, 0x03E0)) | (y << 5);
-            //     }
-            // }
+            // Dot 340 is skipped on every odd frame
+            if (self.dot == 339) {
+                if (self.pre_render_dot_skip and self.controller_register.flags.V == 1) {
+                    self.dot += 1;
+                }
+                self.pre_render_dot_skip = !self.pre_render_dot_skip;
+            }
+        }
 
-            // // Horizontal position is copied from t to v dot 257 of each scanline
-            // if (self.dot == 257 and self.controller_register.flags.V == 1) {
-            //     self.v = (self.v ^ 0x41F) | (self.t.value & 0x41F);
-            // }
+        inline fn renderStep(self: *Self) void {
+            
+            if (self.dot > 0 and self.dot <= 256) {
+
+                const x_offset: u3 = @truncate((self.dot - 1 + self.x) % 8);
+
+                // Get tile from nametable
+                const tile: u16 = self.bus.readByte(0x2000 | (self.v & 0x0FFF));
+                // Get pattern from chr_rom
+                const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) + ((self.v >> 12) & 0x7) + (tile * 16);
+                const palette_color: u16 = (self.bus.readByte(address) >> (7 - x_offset)) & 1 | 
+                                    (self.bus.readByte(address + 8) >> (7 - x_offset)) & 1;
+
+                const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
+                const palette_index: u16 = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
+
+                var pixel = palette[self.bus.readByte(0x3F00 + palette_index * 4 + palette_color)];
+                self.screen.setPixel(self.dot - 1, self.scanline, &pixel);
+
+                if (x_offset == 7) {
+                    // Also from the nesdev wiki
+                    if ((self.v & 0x001F) == 31) {
+                        self.v &= ~@as(u15, 0x001F);
+                        self.v ^= 0x0400;
+                    } else {
+                        self.v += 1;
+                    }
+                }
+            } 
+            
+            if (self.dot == 256 and self.controller_register.flags.V == 1) {
+                // Vertical part of v is incremented at dot 256 of each scanline
+                // From the nesdev wiki
+                if ((self.v & 0x7000) != 0x7000) {
+                    self.v += 0x1000;
+                } else {
+                    self.v &= ~@as(u15, 0x7000);
+                    var y = (self.v & 0x03E0) >> 5;
+                    if (y == 29) {
+                        y = 0;
+                        self.v ^= 0x0800;
+                    } else if (y == 31) {
+                        y = 0;
+                    } else {
+                        y += 1;
+                    }
+                    self.v = (self.v & ~@as(u15, 0x03E0)) | (y << 5);
+                }
+            }
         }
 
         fn getBackgroundPalette(self: *Self, tile_column: usize, tile_row : usize) [4]u8 {
@@ -591,33 +619,33 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         }
 
         pub fn render(self: *Self) void {
-            const background_bank: u16 = self.controller_register.flags.B;
+            // const background_bank: u16 = self.controller_register.flags.B;
 
             // Drawing Background
             // The screen is filled with 960 tiles
-            for (0..960) |i| {
-                const tile: u16 = self.bus.readByte(0x2000 + 0x400 * @as(u16, self.controller_register.flags.N) + @as(u16, @truncate(i)));
-                const tile_x = i % 32;
-                const tile_y = i / 32;
-                const base_offset = (background_bank * 0x1000) + (tile * 16);
-                // const base_offset = @as(u16, @truncate(i)) * 16;
+            // for (0..960) |i| {
+            //     const tile: u16 = self.bus.readByte(0x2000 + 0x400 * @as(u16, self.controller_register.flags.N) + @as(u16, @truncate(i)));
+            //     const tile_x = i % 32;
+            //     const tile_y = i / 32;
+            //     const base_offset = (background_bank * 0x1000) + (tile * 16);
+            //     // const base_offset = @as(u16, @truncate(i)) * 16;
 
-                const bg_palette = self.getBackgroundPalette(tile_x, tile_y);
-                // std.debug.print("Palette: Bg:{} 0:{} 1:{} 2:{}\n", .{bg_palette[0], bg_palette[1], bg_palette[2], bg_palette[3]});
+            //     const bg_palette = self.getBackgroundPalette(tile_x, tile_y);
+            //     // std.debug.print("Palette: Bg:{} 0:{} 1:{} 2:{}\n", .{bg_palette[0], bg_palette[1], bg_palette[2], bg_palette[3]});
 
-                for (0..8) |y| {
-                    var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
-                    var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
+            //     for (0..8) |y| {
+            //         var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
+            //         var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
 
-                    for (0..8) |x| {
-                        const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
-                        upper >>= 1;
-                        lower >>= 1;
-                        var pixel = palette[bg_palette[val]];
-                        self.screen.setPixel((tile_x * 8) + (7-x), (tile_y * 8) + y, &pixel);
-                    }
-                }
-            }
+            //         for (0..8) |x| {
+            //             const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
+            //             upper >>= 1;
+            //             lower >>= 1;
+            //             var pixel = palette[bg_palette[val]];
+            //             self.screen.setPixel((tile_x * 8) + (7-x), (tile_y * 8) + y, &pixel);
+            //         }
+            //     }
+            // }
 
             // Drawing Sprites
             const sprite_bank: u16 = self.controller_register.flags.S;
