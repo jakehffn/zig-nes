@@ -14,11 +14,11 @@ To use the emulator, pass the path to a ROM to the built `ZigNES` executable.
 ### Controls
 | Key | Action |
 |-----|---------|
-| **W,A,S,D** | D-Pad |
-| **J** | A Button |
-| **K** | B Button |
-| **Space** | Select |
-| **Return** | Start |
+| <kbd>W</kbd>,<kbd>A</kbd>,<kbd>S</kbd>,<kbd>D</kbd> | D-Pad |
+| <kbd>J</kbd> | A Button |
+| <kbd>K</kbd> | B Button |
+| <kbd>Space</kbd> | Select |
+| <kbd>Return</kbd> | Start |
 
 ## CPU tests
 To test the CPU, Tom Harte's [nes6502 tests](https://github.com/TomHarte/ProcessorTests/tree/main/nes6502) are used. This is a suite of 10,000 tests for each of the 256 opcodes, both legal and illegal, which describes the initial and final state of the CPU after running one instruction.
