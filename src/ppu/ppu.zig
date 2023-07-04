@@ -628,35 +628,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         }
 
         pub fn render(self: *Self) void {
-            // const background_bank: u16 = self.controller_register.flags.B;
-
-            // Drawing Background
-            // The screen is filled with 960 tiles
-            // for (0..960) |i| {
-            //     const tile: u16 = self.bus.readByte(0x2000 + 0x400 * @as(u16, self.controller_register.flags.N) + @as(u16, @truncate(i)));
-            //     const tile_x = i % 32;
-            //     const tile_y = i / 32;
-            //     const base_offset = (background_bank * 0x1000) + (tile * 16);
-            //     // const base_offset = @as(u16, @truncate(i)) * 16;
-
-            //     const bg_palette = self.getBackgroundPalette(tile_x, tile_y);
-            //     // std.debug.print("Palette: Bg:{} 0:{} 1:{} 2:{}\n", .{bg_palette[0], bg_palette[1], bg_palette[2], bg_palette[3]});
-
-            //     for (0..8) |y| {
-            //         var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
-            //         var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
-
-            //         for (0..8) |x| {
-            //             const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
-            //             upper >>= 1;
-            //             lower >>= 1;
-            //             var pixel = palette[bg_palette[val]];
-            //             self.screen.setPixel((tile_x * 8) + (7-x), (tile_y * 8) + y, &pixel);
-            //         }
-            //     }
-            // }
-
             // Drawing Sprites
+            // !Temporarily done in separate function
             const sprite_bank: u16 = self.controller_register.flags.S;
             
             for (0..self.oam.len/4) |i| {
@@ -668,7 +641,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 const flip_horizontal = self.oam[sprite_index + 2] >> 6 & 1 == 1;
                 const flip_vertical = self.oam[sprite_index + 2] >> 7 & 1 == 1;
                 const tile_x = self.oam[sprite_index + 3];
-
 
                 if (tile_y >= 0xEF) {
                     continue;
