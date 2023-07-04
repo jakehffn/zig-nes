@@ -104,6 +104,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = bus;
                 const prev_v = ppu.controller_register.flags.V;
                 ppu.controller_register.flags = @bitCast(value);
+                ppu.t.bytes.high = (ppu.t.bytes.high & ~@as(u7, 0b1100)) | @as(u7, @truncate((value & 0b11) << 2)); 
 
                 if (ppu.status_register.flags.V == 1 and prev_v == 0 and ppu.controller_register.flags.V == 1) {
                     ppu.main_bus.nmi = true;
@@ -227,16 +228,16 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     // t: ....... ...ABCDE <- d: ABCDE...
                     // x:              FGH <- d: .....FGH
                     // w:                  <- 1
-                    ppu.t.bytes.low = ppu.t.bytes.low | value >> 3;
+                    ppu.t.bytes.low = (ppu.t.bytes.low & ~@as(u8, 0b11111)) | (value >> 3);
                     ppu.x = @truncate(value);
                 } else {
                     // Second write
                     // t: FGH..AB CDE..... <- d: ABCDEFGH
                     // w:                  <- 0
-                    ppu.t.bytes.high = @truncate(((0b111 & value) << 4) | (ppu.t.bytes.high & 0b1100) | (value >> 6));
+                    ppu.t.bytes.high = @truncate((ppu.t.bytes.high & ~@as(u7, 0b1110011)) | ((0b111 & value) << 4) | (value >> 6));
+                    ppu.t.bytes.low = (ppu.t.bytes.low & ~@as(u8, 0b11100000)) | ((value & 0b111000) << 2);
                 } 
                 ppu.w = !ppu.w;
-
             }
 
             pub fn busCallback(self: *ScrollRegister) BusCallback {
@@ -261,7 +262,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     //        <unused>     <- d: AB......
                     // t: Z...... ........ <- 0 (bit Z is cleared)
                     // w:                  <- 1
-                    ppu.t.bytes.high = @truncate(value & 0x3F);
+                    ppu.t.bytes.high = @truncate(value & 0b111111);
                 } else {
                     // t: ....... ABCDEFGH <- d: ABCDEFGH
                     // v: <...all bits...> <- t: <...all bits...>
@@ -298,17 +299,16 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 // TODO: Read conflict with DPCM samples
                 _ = address; 
                 // Wrapping back to addressable range
-                var mirrored_address = ppu.v % 0x4000;
                 // When reading palette data, the data is placed immediately on the bus
                 //  and the buffer instead is filled with the data from the nametables
                 //  as if the mirrors continued to the end of the address range
                 //  Explained here: https://www.nesdev.org/wiki/PPU_registers#PPUDATA
-                if (mirrored_address >= 0x3F00) {
-                    ppu.data_register.read_buffer = ppu.bus.readByte(mirrored_address - 0x1000);
-                    return ppu.bus.readByte(mirrored_address);
+                if (ppu.v >= 0x3F00) {
+                    ppu.data_register.read_buffer = ppu.bus.readByte(ppu.v - 0x1000);
+                    return ppu.bus.readByte(ppu.v);
                 }
                 const last_read_byte = ppu.data_register.read_buffer;
-                ppu.data_register.read_buffer = ppu.bus.readByte(mirrored_address);
+                ppu.data_register.read_buffer = ppu.bus.readByte(ppu.v);
                 return last_read_byte;
             }    
 
@@ -316,10 +316,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 _ = bus;
                 _ = address;
                 // Wrapping back to addressable range
-                ppu.bus.writeByte(ppu.v % 0x4000, value);
-                // if (ppu.address_register.address.value & 0x3FFF > 0x2FFF) {
-                //     std.debug.print("PPU::Wrote: 0x{X} to ${X}\n", .{value, ppu.address_register.address.value & 0x3FFF});
-                // }
+                ppu.bus.writeByte(ppu.v, value);
                 @TypeOf(ppu.address_register).incrementAddress(ppu);
             }
 
@@ -358,6 +355,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         const ControlFlags = packed struct {
             N: u2 = 0, // Base nametable address
                        // `0`: $2000; `1`: $2400; `2`: $2800; `3`: $2C00
+                       // Not used directly from here
             I: u1 = 0, // VRAM addresss increment per CPU read/write of PPUDATA
                        // `0`: add 1, going across; `1`: add 32, going down
             S: u1 = 0, // Sprite pattern table address for 8x8 sprites
@@ -459,11 +457,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         /// Takes the number of cycles of the last executed CPU instructions
         pub fn step(self: *Self) void {
-            self.dotIncrement();
-
             if (self.scanline == 261) {
                 self.prerenderStep();
-            } else if (self.scanline < 241) {
+            } else if (self.scanline < 240) {
                 self.renderStep();
             } else {
                 // Start of V-blank
@@ -474,11 +470,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     }
                 }
             }    
-
-            // Horizontal position is copied from t to v dot 257 of each scanline
-            if (self.dot == 257 and self.controller_register.flags.V == 1) {
-                self.v = (self.v ^ 0x41F) | (self.t.value & 0x41F);
-            }
+            self.dotIncrement();
         }
 
         inline fn dotIncrement(self: *Self) void {
@@ -486,15 +478,15 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             // Every step one pixel should be drawn
             self.dot += 1;
 
-            // Each scanline is 341 dots
-            if (self.dot == 341) {
-                self.dot -= 341;
-                self.scanline += 1;
-            }
-
             // Start scanline 0 after 263 scanlines
             if (self.scanline == 262) {
                 self.scanline = 0;
+            }
+
+            // Each scanline is 341 dots
+            if (self.dot == 340) {
+                self.dot -= 340;
+                self.scanline += 1;
             }
         }
 
@@ -502,14 +494,18 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             if (self.dot == 1) {
                 self.status_register.flags.V = 0;
             }
+            // Horizontal position is copied from t to v dot 257 of each scanline
+            if (self.dot == 258 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+                self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
+            }
             // Horizontal part of t is copied to v
-            if (self.dot > 280 and self.dot <= 304 and self.controller_register.flags.V == 1) {
-                self.v = (self.v ^ 0x7BE0) | (self.t.value & 0x7BE0);
+            if (self.dot > 280 and self.dot <= 304 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+                self.v = (self.v & ~@as(u15, 0x7BE0)) | (self.t.value & 0x7BE0);
             }
 
-            // Dot 340 is skipped on every odd frame
-            if (self.dot == 339) {
-                if (self.pre_render_dot_skip and self.controller_register.flags.V == 1) {
+            // Dot 339 is skipped on every odd frame
+            if (self.dot == 338) {
+                if (self.pre_render_dot_skip and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
                     self.dot += 1;
                 }
                 self.pre_render_dot_skip = !self.pre_render_dot_skip;
@@ -525,14 +521,17 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 // Get tile from nametable
                 const tile: u16 = self.bus.readByte(0x2000 | (self.v & 0x0FFF));
                 // Get pattern from chr_rom
-                const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) + ((self.v >> 12) & 0x7) + (tile * 16);
-                const palette_color: u16 = (self.bus.readByte(address) >> (7 - x_offset)) & 1 | 
-                                    (self.bus.readByte(address + 8) >> (7 - x_offset)) & 1;
+                const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
+                const palette_color: u16 = ((self.bus.readByte(address) >> (7 - x_offset)) & 1) | 
+                                           ((self.bus.readByte(address + 8) >> (7 - x_offset)) << 1);
+                _ = palette_color;
 
                 const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
                 const palette_index: u16 = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
+                _ = palette_index;
 
-                var pixel = palette[self.bus.readByte(0x3F00 + palette_index * 4 + palette_color)];
+                // var pixel = palette[self.bus.readByte(0x3F00 + ((palette_index << 2) | palette_color)) % 64];
+                var pixel = palette[tile % 64];
                 self.screen.setPixel(self.dot - 1, self.scanline, &pixel);
 
                 if (x_offset == 7) {
@@ -546,8 +545,8 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 }
             } 
             
-            if (self.dot == 256 and self.controller_register.flags.V == 1) {
-                // Vertical part of v is incremented at dot 256 of each scanline
+            if (self.dot == 257 and self.mask_register.flags.b == 1) {
+                // Vertical part of v is incremented after dot 256 of each scanline
                 // From the nesdev wiki
                 if ((self.v & 0x7000) != 0x7000) {
                     self.v += 0x1000;
@@ -564,6 +563,11 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     }
                     self.v = (self.v & ~@as(u15, 0x03E0)) | (y << 5);
                 }
+            }
+
+            // Horizontal position is copied from t to v after dot 257 of each scanline
+            if (self.dot == 258 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+                self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
             }
         }
 
@@ -599,7 +603,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     const color_index = self.bus.readByte(
                         0x3F01 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
                     );
-                    var pixel = palette[color_index];
+                    var pixel = palette[color_index % 64];
                     for (0..11 + border*2) |y| {
                         const iy: i16 = @bitCast(@as(u16, @truncate(y)));
                         const pixel_y: u16 = @bitCast(239 - 8 - border - iy);
@@ -678,13 +682,14 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         if (val == 0) {
                             continue;
                         }
-                        var pixel = palette[sprite_palette[val-1]];
+                        var pixel = palette[sprite_palette[val-1] % 64];
                         const x_offset = if (flip_horizontal) x else (7 - x);
                         const y_offset = if (flip_vertical) (7 - y) else y;
                         self.screen.setPixel(tile_x + x_offset, tile_y + y_offset, &pixel);
                     }
                 }
             }
+            // self.drawPalette(); 
         }
     };
 } 
