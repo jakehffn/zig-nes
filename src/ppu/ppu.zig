@@ -192,9 +192,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             const OamDataRegister = @This();
 
             fn read(ppu: *Self, bus: *Bus, address: u16) u8 {
+                _ = address;
                 _ = bus;
-
-                return ppu.oam[address];
+                return ppu.oam[ppu.oam_address_register.address];
             }
 
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
@@ -303,13 +303,18 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 //  and the buffer instead is filled with the data from the nametables
                 //  as if the mirrors continued to the end of the address range
                 //  Explained here: https://www.nesdev.org/wiki/PPU_registers#PPUDATA
-                if (ppu.v >= 0x3F00) {
+                var data = ppu.bus.readByte(ppu.v);
+
+                if (ppu.v < 0x3F00) {
+                    const last_read_byte = ppu.data_register.read_buffer;
+                    ppu.data_register.read_buffer = data;    
+                    data = last_read_byte;
+                } else {
                     ppu.data_register.read_buffer = ppu.bus.readByte(ppu.v - 0x1000);
-                    return ppu.bus.readByte(ppu.v);
                 }
-                const last_read_byte = ppu.data_register.read_buffer;
-                ppu.data_register.read_buffer = ppu.bus.readByte(ppu.v);
-                return last_read_byte;
+
+                @TypeOf(ppu.address_register).incrementAddress(ppu);
+                return data;
             }    
 
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
@@ -464,6 +469,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             } else {
                 // Start of V-blank
                 if (self.scanline == 241 and self.dot == 1) {
+                // if (self.scanline == 241) {
                     self.status_register.flags.V = 1;
                     if (self.controller_register.flags.V == 1) {
                         self.main_bus.*.nmi = true;
@@ -498,7 +504,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             if (self.dot == 258 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
                 self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
             }
-            // Horizontal part of t is copied to v
+            // Vertical part of t is copied to v
             if (self.dot > 280 and self.dot <= 304 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
                 self.v = (self.v & ~@as(u15, 0x7BE0)) | (self.t.value & 0x7BE0);
             }
@@ -512,35 +518,34 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         }
 
-        inline fn renderStep(self: *Self) void {
+        fn renderStep(self: *Self) void {
             
             if (self.dot > 0 and self.dot <= 256) {
+                if (self.mask_register.flags.b == 1) {
 
-                const x_offset: u3 = @truncate((self.dot - 1 + self.x) % 8);
+                    const x_offset: u3 = @truncate((self.dot + self.x - 1) % 8);
 
-                // Get tile from nametable
-                const tile: u16 = self.bus.readByte(0x2000 | (self.v & 0x0FFF));
-                // Get pattern from chr_rom
-                const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
-                const palette_color: u16 = ((self.bus.readByte(address) >> (7 - x_offset)) & 1) | 
-                                           ((self.bus.readByte(address + 8) >> (7 - x_offset)) << 1);
-                _ = palette_color;
+                    // Get tile from nametable
+                    const tile: u16 = self.bus.readByte(0x2000 | (self.v & 0x0FFF));
+                    // Get pattern from chr_rom
+                    const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
+                    const palette_color: u16 = ((self.bus.readByte(address) >> (7 ^ x_offset)) & 1) | 
+                                            (((self.bus.readByte(address + 8) >> (7 ^ x_offset)) & 1) << 1);
 
-                const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
-                const palette_index: u16 = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
-                _ = palette_index;
+                    const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
+                    const palette_index: u16 = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
 
-                // var pixel = palette[self.bus.readByte(0x3F00 + ((palette_index << 2) | palette_color)) % 64];
-                var pixel = palette[tile % 64];
-                self.screen.setPixel(self.dot - 1, self.scanline, &pixel);
+                    var pixel = palette[self.bus.readByte(0x3F00 + ((palette_index << 2) | palette_color))];
+                    self.screen.setPixel(self.dot - 1, self.scanline, &pixel);
 
-                if (x_offset == 7) {
-                    // Also from the nesdev wiki
-                    if ((self.v & 0x001F) == 31) {
-                        self.v &= ~@as(u15, 0x001F);
-                        self.v ^= 0x0400;
-                    } else {
-                        self.v += 1;
+                    if (x_offset == 7) {
+                        // Also from the nesdev wiki
+                        if ((self.v & 0x001F) == 31) {
+                            self.v &= ~@as(u15, 0x001F);
+                            self.v ^= 0x0400;
+                        } else {
+                            self.v += 1;
+                        }
                     }
                 }
             } 

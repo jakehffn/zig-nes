@@ -200,6 +200,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 return;
             }
 
+            if (self.nmi.*) {
+                self.nmiInterrupt();
+            }
+
             self.step_cycles = 0;
 
             var opcode = self.bus.readByte(self.pc);
@@ -226,10 +230,6 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             self.step_cycles += OpCode.cycles[opcode];
             self.execute(curr_instruction.mnemonic, operand_address);
             self.total_cycles +%= self.step_cycles;
-
-            if (self.nmi.*) {
-                self.nmiInterrupt();
-            }
 
             self.wait_cycles = self.step_cycles - 1;
         }
