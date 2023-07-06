@@ -564,7 +564,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 if (self.mask_register.flags.s == 1) {
                     for (0..self.secondary_oam_size) |i| {
                         const oam_sprite_offset = self.secondary_oam[i] * 4; 
-                        const sprite_x = self.oam[oam_sprite_offset + 3] +% 1;
+                        const sprite_x = self.oam[oam_sprite_offset + 3] +| 1;
 
                         const distance = self.dot -% @as(u16, sprite_x);
                         if (distance >= 8) {
@@ -574,6 +574,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         const sprite_y = self.oam[oam_sprite_offset] +% 1;
                         const tile: u16 = self.oam[oam_sprite_offset + 1];
                         const palette_index: u2 = @truncate(self.oam[oam_sprite_offset + 2]);
+                        const priority = self.oam[oam_sprite_offset + 2] >> 5 & 1 == 0;
                         const flip_horizontal = self.oam[oam_sprite_offset + 2] >> 6 & 1 == 1;
                         const flip_vertical = self.oam[oam_sprite_offset + 2] >> 7 & 1 == 1;
 
@@ -591,6 +592,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         var lower = self.bus.readByte(tile_pattern_offset + @as(u16, tile_y)) >> (7 ^ tile_x);
                         var upper = self.bus.readByte(tile_pattern_offset + @as(u16, tile_y) + 8) >> (7 ^ tile_x);
                         const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
+                        // Don't draw anything if index 0
                         if (palette_color == 0) {
                             continue;
                         }
@@ -598,8 +600,11 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         if (oam_sprite_offset == 0 and !background_is_global and self.status_register.flags.S == 0) {
                             self.status_register.flags.S = 1;
                         }
-
-                        pixel_color_address = (0x10 + @as(u16, palette_index) * 4) + @as(u16, palette_color);
+                        // Sprite's are only shown if the background is the global background color 
+                        //  or if the sprite has priority
+                        if (priority or background_is_global) {
+                            pixel_color_address = (0x10 + @as(u16, palette_index) * 4) + @as(u16, palette_color);
+                        }
                     }
                 }
 
