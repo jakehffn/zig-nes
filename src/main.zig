@@ -25,6 +25,7 @@ pub fn main() !void {
     ppu_bus.setCallbacks();
 
     var ppu = try Ppu("./log/ZigNES_PPU.log").init(&ppu_bus);
+    // var ppu = try Ppu(null).init(&ppu_bus);
     defer ppu.deinit();
 
     var main_bus = try MainBus.init(allocator);
@@ -32,6 +33,7 @@ pub fn main() !void {
     main_bus.setCallbacks(&ppu);
 
     var cpu = try Cpu("./log/ZigNES.log").init(&main_bus);
+    // var cpu = try Cpu(null).init(&main_bus);
     defer cpu.deinit();
 
     ppu.setMainBus(&main_bus);
@@ -132,8 +134,6 @@ pub fn main() !void {
         }
 
         main_bus.controller.status = controller_status;
-
-        ppu.render();
         _ = c.SDL_UpdateTexture(texture, null, &ppu.screen.data, 256*3);
         _ = c.SDL_RenderCopy(renderer, texture, null, null);
         c.SDL_RenderPresent(renderer);

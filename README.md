@@ -2,9 +2,9 @@
 
 **NES emulator written in Zig**
 
-Currently, only the NROM mapper is supported. PPU scrolling and sound have not yet been implemented (but should be implemented soon!). 
+Currently, only the NROM mapper is supported and there is no sound. 
 
-Games with static screen and limited scrolling, like Donkey Kong and PacMan, can be emulated pretty well.
+Timing is also off, so building in release will produce very fast emulation.
 
 ## Build and Usage
 Building with Zig is as simple as running `zig build` in the top project directory. The build file assumes that SDL2 is installed in the directory `"C:\lib\SDL2-2.26.4\"`.

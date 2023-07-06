@@ -203,9 +203,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
                 _ = address;
                 _ = bus;
-                if (ppu.status_register.flags.V == 0) {
-                    return;
-                }
                 ppu.oam[ppu.oam_address_register.address] = value;
                 ppu.oam_address_register.address +%= 1;
             }
@@ -279,6 +276,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             fn incrementAddress(ppu: *Self) void {
                 // Increment row or column based on the controller register increment flag
                 ppu.v +%= if (ppu.controller_register.flags.I == 0) 1 else 32;
+                ppu.v &= 0x3FFF; // TODO: Check if this is correct
             }
 
             pub fn busCallback(self: *AddressRegister) BusCallback {
@@ -299,9 +297,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
             fn read(ppu: *Self, bus: *Bus, address: u16) u8 {
                 _ = bus;
-                // TODO: Read conflict with DPCM samples
                 _ = address; 
-                // Wrapping back to addressable range
                 // When reading palette data, the data is placed immediately on the bus
                 //  and the buffer instead is filled with the data from the nametables
                 //  as if the mirrors continued to the end of the address range
@@ -323,7 +319,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
                 _ = bus;
                 _ = address;
-                // Wrapping back to addressable range
                 ppu.bus.writeByte(ppu.v, value);
                 @TypeOf(ppu.address_register).incrementAddress(ppu);
             }
@@ -343,9 +338,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
             fn write(ppu: *Self, bus: *Bus, address: u16, value: u8) void {
                 const page = @as(u16, value) << 8;
-                for (0..ppu.oam.len) |i| {
-                    _ = i;
+                for (0..ppu.oam.len) |_| {
                     const cpu_page_offset: u16 = ppu.oam_address_register.address;
+                    // No need to wrap the address into cpu bus as the address register already does this
                     @TypeOf(ppu.oam_data_register).write(ppu, bus, address, ppu.main_bus.bus.readByte(page + cpu_page_offset));
                 }
             }
@@ -542,14 +537,15 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     const palette_color: u16 = ((self.bus.readByte(address) >> (7 ^ x_offset)) & 1) | 
                                                (((self.bus.readByte(address + 8) >> (7 ^ x_offset)) & 1) << 1);
 
+                    var palette_index: u16 = 0;
                     if (palette_color == 0) {
                         background_is_global = true;
+                    } else {
+                        // Coarse x and coarse y are used to find the attribute byte
+                        // Address formula from NesDev wiki
+                        const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
+                        palette_index = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
                     }
-
-                    // Coarse x and coarse y are used to find the attribute byte
-                    // Address formula from NesDev wiki
-                    const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
-                    const palette_index: u16 = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
 
                     pixel_color_address = ((palette_index << 2) | palette_color);
 
@@ -570,7 +566,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         const oam_sprite_offset = self.secondary_oam[i] * 4; 
                         const sprite_x = self.oam[oam_sprite_offset + 3] +% 1;
 
-                        const distance = self.dot -% sprite_x;
+                        const distance = self.dot -% @as(u16, sprite_x);
                         if (distance >= 8) {
                             continue;
                         }
@@ -667,30 +663,23 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             return [_]u8{self.bus.readByte(palette_offset), self.bus.readByte(palette_offset + 1), self.bus.readByte(palette_offset + 2)};
         }
 
-        /// Draws palette for debugging
-        fn drawPalette(self: *Self) void {
-            const left_offset = 8;
-            const border = 2;
-            var border_color = palette[5];
+        /// Draws palettes for debugging
+        pub fn drawPalettes(self: *Self) void {
+            const palette_color_width = 8;
             // 8 palettes
             for (0..8) |palette_index| {
-                for (0..3) |palette_color_index| {
+                // 3 colors and a mirror per palette
+                for (0..4) |palette_color_index| {
                     const color_index = self.bus.readByte(
-                        0x3F01 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
+                        0x3F00 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
                     );
                     var pixel = palette[color_index % 64];
-                    for (0..11 + border*2) |y| {
-                        const iy: i16 = @bitCast(@as(u16, @truncate(y)));
-                        const pixel_y: u16 = @bitCast(239 - 8 - border - iy);
-                        for (0..11 + border*2) |x| {
-                            const ix: i16 = @bitCast(@as(u16, @truncate(x)));
-                            const pixel_x: u16 = @bitCast(@as(i16, @bitCast(@as(u16, @truncate(left_offset - border + (30 * palette_index) + (10 * palette_color_index))))) + ix);
-                            
-                            if (iy - border < 0 or iy - border >= 10 or (ix - border < 0 and (palette_color_index + palette_index == 0)) or (ix - border >= 10 and (palette_color_index + palette_index == 9))) {
-                                self.screen.setPixel(pixel_x, pixel_y, &border_color);
-                            } else {
-                                self.screen.setPixel(pixel_x, pixel_y, &pixel);
-                            }
+                    for (0..palette_color_width) |y| {
+                        for (0..palette_color_width) |x| {
+                            self.screen.setPixel(
+                                x + palette_color_index * palette_color_width, 
+                                y + palette_index * palette_color_width, 
+                                &pixel);
                         }
                     }
                 }

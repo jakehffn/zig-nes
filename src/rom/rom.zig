@@ -120,6 +120,11 @@ pub const Rom = struct {
             .num_chr_rom_banks = header_data.num_chr_rom_banks
         };
 
+        if (self.header.mapper_type != 0) {
+            std.debug.print("ZigNES: Unsupported Mapper\n", .{});
+            return error.Unsupported;
+        }
+
         const prg_bank_size = 0x4000;
         const prg_bytes = prg_bank_size * @as(u32, self.header.num_prg_rom_banks);
         try self.prg_rom.array.ensureTotalCapacityPrecise(prg_bytes);
