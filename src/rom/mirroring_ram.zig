@@ -22,7 +22,7 @@ pub const MirroringRam = struct {
         return mirroring_ram;
     }
 
-    inline fn getInternalAddress(self: *Self, address: u16) u16 {
+    fn getInternalAddress(self: *Self, address: u16) u16 {
         return switch (self.mirroring_type) {
             .horizontal, .four_screen => 
                 switch (address) {
