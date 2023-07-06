@@ -82,12 +82,13 @@ pub fn main() !void {
     var controller_status: ControllerStatus = .{};
 
     mainloop: while (true) {
+        const start_time = c.SDL_GetPerformanceCounter();
 
-        // This is about a frame
-        // In the future, it would be nice to implement a PPU stack
-        // Explained in this: https://gist.github.com/adamveld12/d0398717145a2c8dedab
+        // This is about the number of cpu cycles per frame
         for (0..29780) |_| {
             cpu.step();
+            // In the future, it would be nice to implement a PPU stack
+            // Explained in this: https://gist.github.com/adamveld12/d0398717145a2c8dedab
             ppu.step();
             ppu.step();
             ppu.step();
@@ -137,5 +138,10 @@ pub fn main() !void {
         _ = c.SDL_UpdateTexture(texture, null, &ppu.screen.data, 256*3);
         _ = c.SDL_RenderCopy(renderer, texture, null, null);
         c.SDL_RenderPresent(renderer);
+
+        const end_time = c.SDL_GetPerformanceCounter();
+        const elapsed_time_ms = @as(f64, @floatFromInt(end_time - start_time)) / @as(f64, @floatFromInt(c.SDL_GetPerformanceFrequency())) * 1000;
+        const frame_time_ms: f64 = 16.66;
+        c.SDL_Delay(@as(u32, @intFromFloat(@max(0, frame_time_ms - elapsed_time_ms))));
     }
 }
