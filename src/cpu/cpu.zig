@@ -409,9 +409,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                     }
                 },
                 .BIT => {
-                    self.p.Z = @bitCast((self.a & self.bus.readByte(operand_address)) == 0);
-                    self.p.V = @truncate(self.bus.readByte(operand_address) >> 6);
-                    self.p.N = @truncate(self.bus.readByte(operand_address) >> 7);
+                    const op = self.bus.readByte(operand_address);
+                    self.p.Z = @bitCast((self.a & op) == 0);
+                    self.p.V = @truncate(op >> 6);
+                    self.p.N = @truncate(op >> 7);
                 },
                 .BMI => {
                     if (self.p.N == 1) {
