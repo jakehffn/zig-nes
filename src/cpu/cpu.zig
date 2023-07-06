@@ -192,6 +192,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             const addr_low: u16 = self.bus.readByte(0xFFFC);
             const addr_high: u16 = self.bus.readByte(0xFFFD);
             self.pc = (addr_high << 8) | addr_low;
+            self.total_cycles = 8;
         }
 
         pub fn step(self: *Self) void {

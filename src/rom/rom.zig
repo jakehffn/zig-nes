@@ -24,14 +24,9 @@ const MappedArray = struct {
         _ = bus;
         return self.array.items[address];
     }
-
-    fn write(self: *Self, bus: *Bus, address: u16, value: u8) void {
-        _ = bus;
-        self.array.items[address] = value;
-    }
     
     pub fn busCallback(self: *Self) BusCallback {
-        return BusCallback.init(self, read, write);
+        return BusCallback.init(self, read, BusCallback.noWrite(Self, "Cannot write to ROM", false));
     }
 };
 

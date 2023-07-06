@@ -536,7 +536,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
                     const palette_color: u16 = ((self.bus.readByte(address) >> (7 ^ x_offset)) & 1) | 
                                                (((self.bus.readByte(address + 8) >> (7 ^ x_offset)) & 1) << 1);
-
+                    
                     var palette_index: u16 = 0;
                     if (palette_color == 0) {
                         background_is_global = true;
