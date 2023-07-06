@@ -89,6 +89,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         total_cycles: u32 = 0,
         /// Object attribute memory
         oam: [256]u8,
+        secondary_oam: [8]u8, // Will just hold indices into oam
+        secondary_oam_size: u8 = 0,
+
         screen: Screen,
         log_file: ?std.fs.File,
 
@@ -378,10 +381,10 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         const MaskFlags = packed struct {
             Gr: u1 = 0, // `0`: normal; `1`: greyscale
-            m: u1 = 0,  // `0`: Show background in leftmost 8 pixels of screen; `1`: Hide
-            M: u1 = 0,  // `0`: Show sprites in leftmost 8 pixels of screen; `1`: Hide 
-            b: u1 = 0,  // `0`: Show background; `1`: Hide
-            s: u1 = 0,  // `0`: Show spites; `1`: Hide
+            m: u1 = 0,  // `1`: Show background in leftmost 8 pixels of screen; `0`: Hide
+            M: u1 = 0,  // `1`: Show sprites in leftmost 8 pixels of screen; `0`: Hide 
+            b: u1 = 0,  // `1`: Show background; `0`: Hide
+            s: u1 = 0,  // `1`: Show spites; `0`: Hide
             R: u1 = 0,  // Emphasize red
             G: u1 = 0,  // Emphasize green
             B: u1 = 0   // Emphasize blue
@@ -436,6 +439,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 .bus = &ppu_bus.bus,
                 .main_bus = undefined,
                 .oam = undefined,
+                .secondary_oam = undefined,
                 .screen = Screen.init(),
                 .log_file = blk: {
                     break :blk try std.fs.cwd().createFile(
@@ -446,6 +450,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             };
 
             @memset(ppu.oam[0..ppu.oam.len], 0);
+            @memset(ppu.secondary_oam[0..ppu.secondary_oam.len], 0);
 
             return ppu;
         }
@@ -469,7 +474,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             } else {
                 // Start of V-blank
                 if (self.scanline == 241 and self.dot == 1) {
-                // if (self.scanline == 241) {
                     self.status_register.flags.V = 1;
                     if (self.controller_register.flags.V == 1) {
                         self.main_bus.*.nmi = true;
@@ -490,14 +494,16 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
 
             // Each scanline is 341 dots
-            if (self.dot == 340) {
-                self.dot -= 340;
+            if (self.dot == 341) {
+                self.dot -= 341;
                 self.scanline += 1;
             }
         }
 
         inline fn prerenderStep(self: *Self) void {
             if (self.dot == 1) {
+                self.status_register.flags.O = 0;
+                self.status_register.flags.S = 0;
                 self.status_register.flags.V = 0;
             }
             // Horizontal position is copied from t to v dot 257 of each scanline
@@ -521,6 +527,10 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         fn renderStep(self: *Self) void {
             
             if (self.dot > 0 and self.dot <= 256) {
+                var pixel_color_address: u16 = 0;
+                var background_is_global = false;
+
+                // If background rendering is active...
                 if (self.mask_register.flags.b == 1) {
 
                     const x_offset: u3 = @truncate((self.dot + self.x - 1) % 8);
@@ -530,16 +540,22 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     // Get pattern from chr_rom
                     const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
                     const palette_color: u16 = ((self.bus.readByte(address) >> (7 ^ x_offset)) & 1) | 
-                                            (((self.bus.readByte(address + 8) >> (7 ^ x_offset)) & 1) << 1);
+                                               (((self.bus.readByte(address + 8) >> (7 ^ x_offset)) & 1) << 1);
 
+                    if (palette_color == 0) {
+                        background_is_global = true;
+                    }
+
+                    // Coarse x and coarse y are used to find the attribute byte
+                    // Address formula from NesDev wiki
                     const attribute_byte = self.bus.readByte(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
                     const palette_index: u16 = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
 
-                    var pixel = palette[self.bus.readByte(0x3F00 + ((palette_index << 2) | palette_color))];
-                    self.screen.setPixel(self.dot - 1, self.scanline, &pixel);
+                    pixel_color_address = ((palette_index << 2) | palette_color);
 
                     if (x_offset == 7) {
-                        // Also from the nesdev wiki
+                        // Horizontal part of v is incremented every 8 dots
+                        // From the NesDev wiki
                         if ((self.v & 0x001F) == 31) {
                             self.v &= ~@as(u15, 0x001F);
                             self.v ^= 0x0400;
@@ -548,11 +564,56 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         }
                     }
                 }
+                // If sprite rendering is active...
+                if (self.mask_register.flags.s == 1) {
+                    for (0..self.secondary_oam_size) |i| {
+                        const oam_sprite_offset = self.secondary_oam[i] * 4; 
+                        const sprite_x = self.oam[oam_sprite_offset + 3] +% 1;
+
+                        const distance = self.dot -% sprite_x;
+                        if (distance >= 8) {
+                            continue;
+                        }
+
+                        const sprite_y = self.oam[oam_sprite_offset] +% 1;
+                        const tile: u16 = self.oam[oam_sprite_offset + 1];
+                        const palette_index: u2 = @truncate(self.oam[oam_sprite_offset + 2]);
+                        const flip_horizontal = self.oam[oam_sprite_offset + 2] >> 6 & 1 == 1;
+                        const flip_vertical = self.oam[oam_sprite_offset + 2] >> 7 & 1 == 1;
+
+                        const tile_pattern_offset = (@as(u16, self.controller_register.flags.S) * 0x1000) + (tile * 16);
+
+                        var tile_y = self.scanline -| sprite_y;
+                        if (flip_vertical) {
+                            tile_y = 7 - tile_y;
+                        }
+                        var tile_x: u3 = @truncate(self.dot -| sprite_x);
+                        if (flip_horizontal) {
+                            tile_x = 7 - tile_x;
+                        }
+
+                        var lower = self.bus.readByte(tile_pattern_offset + @as(u16, tile_y)) >> (7 ^ tile_x);
+                        var upper = self.bus.readByte(tile_pattern_offset + @as(u16, tile_y) + 8) >> (7 ^ tile_x);
+                        const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
+                        if (palette_color == 0) {
+                            continue;
+                        }
+                        // Set sprite zero hit if background is not the global background color
+                        if (oam_sprite_offset == 0 and !background_is_global and self.status_register.flags.S == 0) {
+                            self.status_register.flags.S = 1;
+                        }
+
+                        pixel_color_address = (0x10 + @as(u16, palette_index) * 4) + @as(u16, palette_color);
+                    }
+                }
+
+                var pixel_color = palette[self.bus.readByte(0x3F00 + pixel_color_address)];
+                self.screen.setPixel(self.dot - 1, self.scanline, &pixel_color);
             } 
             
             if (self.dot == 257 and self.mask_register.flags.b == 1) {
                 // Vertical part of v is incremented after dot 256 of each scanline
-                // From the nesdev wiki
+                // Also From the NesDev wiki
                 if ((self.v & 0x7000) != 0x7000) {
                     self.v += 0x1000;
                 } else {
@@ -574,22 +635,31 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             if (self.dot == 258 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
                 self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
             }
-        }
 
-        fn getBackgroundPalette(self: *Self, tile_column: usize, tile_row : usize) [4]u8 {
-            const attribute_table_index = (tile_row / 4) * 8 + (tile_column / 4);
-            var attribute_byte = self.bus.readByte(@truncate(0x23C0 + 0x400 * @as(u16, self.controller_register.flags.N) + attribute_table_index)); 
+            // At the end of each visible scanline, add the next scanline sprites to secondary oam
+            if (self.dot == 340) {
+                // Clear the sprite list
+                self.secondary_oam_size = 0;
 
-            const palette_index = switch (@as(u2, @truncate((((tile_row % 4) & 2) + ((tile_column % 4) / 2))))) {
-                0 => attribute_byte & 0b11,
-                1 => (attribute_byte >> 2) & 0b11,
-                2 => (attribute_byte >> 4) & 0b11,
-                3 => (attribute_byte >> 6) & 0b11,
-            };
+                const sprite_height = 8;
 
-            const palettes_offset: u16 = 0x3F01;
-            const pallete_start: u16 = palettes_offset + palette_index*4;
-            return [_]u8{self.bus.readByte(0x3F00), self.bus.readByte(pallete_start), self.bus.readByte(pallete_start+1), self.bus.readByte(pallete_start+2)};
+                for (0..64) |i| {
+                    const sprite_y = self.oam[i*4] +% 1;
+                    // Checking if the sprite is on the next scanline
+                    const distance = (self.scanline + 1) -% sprite_y;
+                    // Sprites are visible if the distance between the scanline and the sprite's y
+                    //  position is less than the sprite height
+                    // Because of wrapping during subtraction, a value less than zero will be large
+                    if (distance < sprite_height) {
+                        if (self.secondary_oam_size == 8) {
+                            self.status_register.flags.O = 1;
+                            break;
+                        }
+                        self.secondary_oam[self.secondary_oam_size] = @truncate(i);
+                        self.secondary_oam_size += 1;
+                    }
+                }
+            }
         }
 
         fn getSpritePalette(self: *Self, id: u8) [3]u8 {
@@ -625,48 +695,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     }
                 }
             }
-        }
-
-        pub fn render(self: *Self) void {
-            // Drawing Sprites
-            // !Temporarily done in separate function
-            const sprite_bank: u16 = self.controller_register.flags.S;
-            
-            for (0..self.oam.len/4) |i| {
-                const sprite_index = i * 4;
-                const tile_y = self.oam[sprite_index];
-                const tile: u16 = self.oam[sprite_index + 1];
-                const palette_id: u2 = @truncate(self.oam[sprite_index + 2]);
-                const sprite_palette = self.getSpritePalette(palette_id);
-                const flip_horizontal = self.oam[sprite_index + 2] >> 6 & 1 == 1;
-                const flip_vertical = self.oam[sprite_index + 2] >> 7 & 1 == 1;
-                const tile_x = self.oam[sprite_index + 3];
-
-                if (tile_y >= 0xEF) {
-                    continue;
-                }
-
-                const base_offset = (sprite_bank * 0x1000) + (tile * 16);
-
-                for (0..8) |y| {
-                    var lower = self.bus.readByte(base_offset + @as(u16, @truncate(y)));
-                    var upper = self.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
-
-                    for (0..8) |x| {
-                        const val: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
-                        upper >>= 1;
-                        lower >>= 1;
-                        if (val == 0) {
-                            continue;
-                        }
-                        var pixel = palette[sprite_palette[val-1] % 64];
-                        const x_offset = if (flip_horizontal) x else (7 - x);
-                        const y_offset = if (flip_vertical) (7 - y) else y;
-                        self.screen.setPixel(tile_x + x_offset, tile_y + y_offset, &pixel);
-                    }
-                }
-            }
-            // self.drawPalette(); 
         }
     };
 } 
