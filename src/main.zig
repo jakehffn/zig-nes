@@ -149,10 +149,6 @@ pub fn main() !void {
         c_imgui.ImGui_ImplSDL2_NewFrame();
         c_imgui.igNewFrame();
 
-        _ = c_imgui.igBegin("Hello World!", null, 0);
-        c_imgui.igText("This is some useful text");
-        c_imgui.igEnd();
-
         // This is about the number of cpu cycles per frame
         for (0..29780) |_| {
             cpu.step();
