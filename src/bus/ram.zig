@@ -1,4 +1,4 @@
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("./bus.zig");
 const BusCallback = Bus.BusCallback;
 
 pub fn Ram(comptime N: usize) type {

@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 const allocator = std.testing.allocator;
 
 const Cpu = @import("./cpu.zig").Cpu;
-const Bus = @import("../bus//bus.zig").Bus;
+const Bus = @import("../bus//bus.zig");
 const BusCallback = Bus.BusCallback;
 const Ram = @import("../bus/ram.zig").Ram;
 

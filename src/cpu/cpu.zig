@@ -1,8 +1,8 @@
 const std = @import("std");
 const mode = @import("builtin").mode;
 
-const Bus = @import("../bus/bus.zig").Bus;
-const MainBus = @import("./main_bus.zig").MainBus;
+const Bus = @import("../bus/bus.zig");
+const MainBus = @import("./main_bus.zig");
 const OpCode = @import("./opcode.zig");
 
 pub fn Cpu(comptime log_file_path: ?[]const u8) type { 

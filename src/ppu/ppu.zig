@@ -2,10 +2,10 @@ const std = @import("std");
 const panic = std.debug.panic;
 const mode = @import("builtin").mode;
 
-const Bus = @import("../bus/bus.zig").Bus;
+const Bus = @import("../bus/bus.zig");
 const BusCallback = Bus.BusCallback;
-const PpuBus = @import("../ppu/ppu_bus.zig").PpuBus;
-const MainBus = @import("../cpu/main_bus.zig").MainBus;
+const PpuBus = @import("../ppu/ppu_bus.zig");
+const MainBus = @import("../cpu/main_bus.zig");
 
 const LoggingBusCallback = struct {
     fn logRead(

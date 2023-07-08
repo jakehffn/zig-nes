@@ -1,4 +1,4 @@
-const Bus = @import("./bus.zig").Bus;
+const Bus = @import("./bus.zig");
 const BusCallback = Bus.BusCallback;
 
 pub fn MemoryMirror(comptime mirror_start: u16, comptime mirror_end: u16) type {
