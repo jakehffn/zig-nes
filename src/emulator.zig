@@ -86,6 +86,11 @@ pub fn setControllerStatus(self: *Self, controller_status: ControllerStatus) voi
     self.main_bus.controller.status = controller_status;
 }
 
+pub fn getPaletteViewerPixels(self: *Self) *anyopaque {
+    self.ppu.palette_viewer.update();
+    return &self.ppu.palette_viewer.data;
+}
+
 pub fn getScreenPixels(self: *Self) *anyopaque {
     return &self.ppu.screen.data;
 }

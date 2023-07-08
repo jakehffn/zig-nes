@@ -93,6 +93,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         secondary_oam_size: u8 = 0,
 
         screen: Screen,
+        palette_viewer: PaletteViewer,
         log_file: ?std.fs.File,
 
         // In CPU, mapped to:
@@ -412,6 +413,35 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         };
 
+        const PaletteViewer = struct {
+            const width: usize = 4;
+            const height: usize = 8;
+
+            data: [width*height*3]u8 = undefined,
+
+            pub fn init() PaletteViewer {
+                var palette_viewer: PaletteViewer = .{};
+                @memset(palette_viewer.data[0..palette_viewer.data.len], 0);
+                return palette_viewer;
+            }
+
+            pub fn update(self: *PaletteViewer) void {
+                var ppu = @fieldParentPtr(Self, "palette_viewer", self);
+                // 8 palettes
+                for (0..8) |palette_index| {
+                    // 3 colors and a mirror per palette
+                    for (0..4) |palette_color_index| {
+                        const color_index = ppu.bus.readByte(
+                            0x3F00 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
+                        );
+                        var pixel = &palette[color_index % 64];
+                        const offset = palette_index * 3 * width + palette_color_index * 3;
+                        @memcpy(self.data[offset..offset+3], pixel);
+                    }
+                }
+            }
+        };
+
         // TODO: Load palletes from somewhere else
         const palette = [64][3]u8{
             [_]u8{0x80, 0x80, 0x80}, [_]u8{0x00, 0x3D, 0xA6}, [_]u8{0x00, 0x12, 0xB0}, [_]u8{0x44, 0x00, 0x96}, [_]u8{0xA1, 0x00, 0x5E},
@@ -436,6 +466,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 .oam = undefined,
                 .secondary_oam = undefined,
                 .screen = Screen.init(),
+                .palette_viewer = PaletteViewer.init(),
                 .log_file = blk: {
                     break :blk try std.fs.cwd().createFile(
                         debug_log_file_path orelse {break :blk null;},
@@ -666,29 +697,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         fn getSpritePalette(self: *Self, id: u8) [3]u8 {
             const palette_offset: u16 = 0x3F11 + @as(u16, id)*4;
             return [_]u8{self.bus.readByte(palette_offset), self.bus.readByte(palette_offset + 1), self.bus.readByte(palette_offset + 2)};
-        }
-
-        /// Draws palettes for debugging
-        pub fn drawPalettes(self: *Self) void {
-            const palette_color_width = 8;
-            // 8 palettes
-            for (0..8) |palette_index| {
-                // 3 colors and a mirror per palette
-                for (0..4) |palette_color_index| {
-                    const color_index = self.bus.readByte(
-                        0x3F00 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
-                    );
-                    var pixel = palette[color_index % 64];
-                    for (0..palette_color_width) |y| {
-                        for (0..palette_color_width) |x| {
-                            self.screen.setPixel(
-                                x + palette_color_index * palette_color_width, 
-                                y + palette_index * palette_color_width, 
-                                &pixel);
-                        }
-                    }
-                }
-            }
         }
     };
 } 
