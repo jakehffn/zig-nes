@@ -143,12 +143,28 @@ fn updatePaletteViewerTexture() void {
         c_glew.GL_TEXTURE_2D, 
         0, 
         c_glew.GL_RGB, 
-        4, 
-        8, 
+        @TypeOf(emulator.ppu).PaletteViewer.width, 
+        @TypeOf(emulator.ppu).PaletteViewer.height, 
         0, 
         c_glew.GL_RGB, 
         c_glew.GL_UNSIGNED_BYTE, 
         emulator.getPaletteViewerPixels()
+    );
+    c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
+}
+
+fn updateSpriteViewerTexture() void {
+    c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, gui.sprite_viewer_texture);
+    c_glew.glTexImage2D(
+        c_glew.GL_TEXTURE_2D, 
+        0, 
+        c_glew.GL_RGB, 
+        @TypeOf(emulator.ppu).SpriteViewer.width, 
+        @TypeOf(emulator.ppu).SpriteViewer.height, 
+        0, 
+        c_glew.GL_RGB, 
+        c_glew.GL_UNSIGNED_BYTE, 
+        emulator.getSpriteViewerPixels()
     );
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
 }
@@ -216,6 +232,7 @@ var gl_context: c_sdl.SDL_GLContext = undefined;
 var gui: Gui = .{
     .screen_texture = undefined,
     .palette_viewer_texture = undefined,
+    .sprite_viewer_texture = undefined,
     .tile_viewer_texture = undefined
 };
 var controller_status: ControllerStatus = .{};
@@ -237,6 +254,7 @@ pub fn main() !void {
 
     gui.screen_texture = createTexture();
     gui.palette_viewer_texture = createTexture();
+    gui.sprite_viewer_texture = createTexture();
     gui.tile_viewer_texture = createTexture();
 
     Gui.initStyles();
@@ -252,13 +270,17 @@ pub fn main() !void {
             updateScreenTexture();
         }
 
-        gui.showMainWindow();
+        gui.showMainWindow(&emulator);
         if (gui.show_load_rom_modal) {
             gui.showLoadRomModal(&emulator, allocator);
         }
         if (gui.show_palette_viewer) {
             updatePaletteViewerTexture();
             gui.showPaletteViewer();
+        }
+        if (gui.show_sprite_viewer) {
+            updateSpriteViewerTexture();
+            gui.showSpriteViewer();
         }
         if (gui.show_tile_viewer) {
             gui.showTileViewer();

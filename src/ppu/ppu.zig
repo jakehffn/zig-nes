@@ -94,6 +94,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         screen: Screen,
         palette_viewer: PaletteViewer,
+        sprite_viewer: SpriteViewer,
         log_file: ?std.fs.File,
 
         // In CPU, mapped to:
@@ -413,9 +414,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         };
 
-        const PaletteViewer = struct {
-            const width: usize = 4;
-            const height: usize = 8;
+        pub const PaletteViewer = struct {
+            pub const width: usize = 4;
+            pub const height: usize = 8;
 
             data: [width*height*3]u8 = undefined,
 
@@ -436,7 +437,61 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                         );
                         var pixel = &palette[color_index % 64];
                         const offset = palette_index * 3 * width + palette_color_index * 3;
-                        @memcpy(self.data[offset..offset+3], pixel);
+                        @memcpy(self.data[offset..offset + 3], pixel);
+                    }
+                }
+            }
+        };
+
+        pub const SpriteViewer = struct {
+            pub const width: usize = 8*8;
+            pub const height: usize = 8*8;
+
+            data: [width*height*3]u8 = undefined,
+
+            pub fn init() SpriteViewer {
+                var sprite_viewer: SpriteViewer = .{};
+                @memset(sprite_viewer.data[0..sprite_viewer.data.len], 0);
+                return sprite_viewer;
+            }
+
+            pub fn update(self: *SpriteViewer) void {
+                var ppu = @fieldParentPtr(Self, "sprite_viewer", self);
+                const sprite_bank: u16 = ppu.controller_register.flags.S;
+            
+                for (0..ppu.oam.len/4) |i| {
+                    const sprite_index = i * 4;
+                    const sprite_y = ppu.oam[sprite_index];
+                    _ = sprite_y;
+                    const tile: u16 = ppu.oam[sprite_index + 1];
+                    const palette_id: u2 = @truncate(ppu.oam[sprite_index + 2]);
+                    const flip_horizontal = ppu.oam[sprite_index + 2] >> 6 & 1 == 1;
+                    const flip_vertical = ppu.oam[sprite_index + 2] >> 7 & 1 == 1;
+                    const sprite_x = ppu.oam[sprite_index + 3];
+                    _ = sprite_x;
+
+                    const base_offset = (sprite_bank * 0x1000) + (tile * 16);
+
+                    for (0..8) |y| {
+                        var lower = ppu.bus.readByte(base_offset + @as(u16, @truncate(y)));
+                        var upper = ppu.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
+
+                        for (0..8) |x| {
+                            const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
+                            upper >>= 1;
+                            lower >>= 1;
+                            var color: u8 = undefined;
+                            if (palette_color == 0) {
+                                color = ppu.bus.readByte(0x3F00);
+                            } else {
+                                color = ppu.bus.readByte(0x3F10 + @as(u16, palette_id) * 4 + palette_color);
+                            }
+                            var pixel = &palette[color];
+                            const x_offset = if (flip_horizontal) x else (7 - x);
+                            const y_offset = if (flip_vertical) (7 - y) else y;
+                            const offset =  (((i / 8) * 8 + y_offset) * width + ((i % 8) * 8 + x_offset)) * 3;
+                            @memcpy(self.data[offset..offset + 3], pixel);
+                        }
                     }
                 }
             }
@@ -467,6 +522,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 .secondary_oam = undefined,
                 .screen = Screen.init(),
                 .palette_viewer = PaletteViewer.init(),
+                .sprite_viewer = SpriteViewer.init(),
                 .log_file = blk: {
                     break :blk try std.fs.cwd().createFile(
                         debug_log_file_path orelse {break :blk null;},
@@ -676,7 +732,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                 const sprite_height = 8;
 
                 for (0..64) |i| {
-                    const sprite_y = self.oam[i*4] +% 1;
+                    const sprite_y = self.oam[i*4] +| 1;
                     // Checking if the sprite is on the next scanline
                     const distance = (self.scanline + 1) -% sprite_y;
                     // Sprites are visible if the distance between the scanline and the sprite's y
@@ -692,11 +748,6 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     }
                 }
             }
-        }
-
-        fn getSpritePalette(self: *Self, id: u8) [3]u8 {
-            const palette_offset: u16 = 0x3F11 + @as(u16, id)*4;
-            return [_]u8{self.bus.readByte(palette_offset), self.bus.readByte(palette_offset + 1), self.bus.readByte(palette_offset + 2)};
         }
     };
 } 

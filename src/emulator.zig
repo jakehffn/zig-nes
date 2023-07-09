@@ -91,6 +91,11 @@ pub fn getPaletteViewerPixels(self: *Self) *anyopaque {
     return &self.ppu.palette_viewer.data;
 }
 
+pub fn getSpriteViewerPixels(self: *Self) *anyopaque {
+    self.ppu.sprite_viewer.update();
+    return &self.ppu.sprite_viewer.data;
+}
+
 pub fn getScreenPixels(self: *Self) *anyopaque {
     return &self.ppu.screen.data;
 }
