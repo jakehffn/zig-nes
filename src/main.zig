@@ -20,6 +20,9 @@ const Emulator = @import("emulator.zig");
 const Gui = @import("gui.zig");
 const ControllerStatus = @import("./bus/controller.zig").Status;
 
+const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
+const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
+
 fn initSDL() void {
     if (c_sdl.SDL_Init(c_sdl.SDL_INIT_VIDEO) != 0) {
         std.debug.print("ZigNES: Failed to initialize SDL: {s}\n", .{c_sdl.SDL_GetError()});
@@ -41,9 +44,9 @@ fn initSDL() void {
         "ZigNES", 
         c_sdl.SDL_WINDOWPOS_CENTERED, 
         c_sdl.SDL_WINDOWPOS_CENTERED, 
-        0, 
-        0, 
-        c_sdl.SDL_WINDOW_HIDDEN | c_sdl.SDL_WINDOW_RESIZABLE | c_sdl.SDL_WINDOW_OPENGL
+        1440, 
+        1080, 
+        c_sdl.SDL_WINDOW_SHOWN | c_sdl.SDL_WINDOW_RESIZABLE | c_sdl.SDL_WINDOW_OPENGL
     );
 
     gl_context = c_sdl.SDL_GL_CreateContext(window);
@@ -143,8 +146,8 @@ fn updatePaletteViewerTexture() void {
         c_glew.GL_TEXTURE_2D, 
         0, 
         c_glew.GL_RGB, 
-        @TypeOf(emulator.ppu).PaletteViewer.width, 
-        @TypeOf(emulator.ppu).PaletteViewer.height, 
+        PaletteViewer.width, 
+        PaletteViewer.height, 
         0, 
         c_glew.GL_RGB, 
         c_glew.GL_UNSIGNED_BYTE, 
@@ -159,8 +162,8 @@ fn updateSpriteViewerTexture() void {
         c_glew.GL_TEXTURE_2D, 
         0, 
         c_glew.GL_RGB, 
-        @TypeOf(emulator.ppu).SpriteViewer.width, 
-        @TypeOf(emulator.ppu).SpriteViewer.height, 
+        SpriteViewer.width, 
+        SpriteViewer.height, 
         0, 
         c_glew.GL_RGB, 
         c_glew.GL_UNSIGNED_BYTE, 
@@ -207,7 +210,7 @@ fn render() void {
     c_imgui.igRender();
     _ = c_sdl.SDL_GL_MakeCurrent(window, gl_context);
     c_glew.glViewport(0, 0, @intFromFloat(io.DisplaySize.x), @intFromFloat(io.DisplaySize.y));
-    c_glew.glClearColor(0.45, 0.55, 0.6, 1);
+    c_glew.glClearColor(0.01, 0.0, 0.005, 1);
     c_glew.glClear(c_glew.GL_COLOR_BUFFER_BIT);
     c_imgui.ImGui_ImplOpenGL3_RenderDrawData(c_imgui.igGetDrawData());
     

@@ -1,7 +1,11 @@
 const std = @import("std");
-// Version 0.11.0
+const GPA = std.heap.GeneralPurposeAllocator;
+
+var gpa = GPA(.{}){};
 
 pub fn build(b: *std.Build) void {
+    var allocator = gpa.allocator();
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -38,31 +42,63 @@ pub fn build(b: *std.Build) void {
             "-DCIMGUI_USE_OPENGL3"
         }
     );
-    const sdl_path = "C:/lib/SDL2-2.26.4/";
+
+    const sdl2_path = std.process.getEnvVarOwned(allocator, "SDL2_PATH") catch {
+        std.debug.print("Build Error: ENV variable 'SDL2_PATH' not found", .{});
+        return;
+    };
+    defer allocator.free(sdl2_path);
+
+    const sdl2_include_path = std.fs.path.join(allocator, &.{sdl2_path, "include"}) catch |err| {
+        std.debug.print("{s}", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(sdl2_include_path);
+    const sdl2_lib_path = std.fs.path.join(allocator, &.{sdl2_path, "lib/x64"}) catch |err| {
+        std.debug.print("{s}", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(sdl2_lib_path);
+    const sdl2_dll_path = std.fs.path.join(allocator, &.{sdl2_lib_path, "SDL2.dll"}) catch |err| {
+        std.debug.print("{s}", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(sdl2_dll_path);
 
     imgui.addIncludePath("./libs/cimgui/imgui");
-    imgui.addIncludePath(sdl_path ++ "include");
-    imgui.addLibraryPath(sdl_path ++ "lib/x64");
-
-    imgui.addIncludePath("C:/msys64/mingw64/include");
-    imgui.addLibraryPath("C:/msys64/mingw64/lib");
+    imgui.addIncludePath(sdl2_include_path);
+    imgui.addLibraryPath(sdl2_lib_path);
     
-    // imgui also needs sdl to compile
-    imgui.addIncludePath(sdl_path ++ "include");
     imgui.linkSystemLibrary("opengl32");
     imgui.linkSystemLibrary("sdl2");
-    // b.installArtifact(imgui);
 
     exe.addIncludePath("./libs/cimgui");
     exe.addIncludePath("./libs/cimgui/generator/output");
     exe.linkLibrary(imgui);
 
-    exe.addIncludePath(sdl_path ++ "include");
-    exe.addLibraryPath(sdl_path ++ "lib/x64");
-    b.installBinFile(sdl_path ++ "lib/x64/SDL2.dll", "SDL2.dll");
+    exe.addIncludePath(sdl2_include_path);
+    exe.addLibraryPath(sdl2_lib_path);
+    b.installBinFile(sdl2_dll_path, "SDL2.dll");
 
-    exe.addIncludePath("C:/msys64/mingw64/include");
-    exe.addLibraryPath("C:/msys64/mingw64/lib");
+    const glew_path = std.process.getEnvVarOwned(allocator, "GLEW_PATH") catch {
+        std.debug.print("Build Error: ENV variable 'GLEW_PATH' not found", .{});
+        return;
+    };
+    defer allocator.free(glew_path);
+    
+    const glew_include_path = std.fs.path.join(allocator, &.{glew_path, "include"}) catch |err| {
+        std.debug.print("{s}", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(glew_include_path);
+    const glew_lib_path = std.fs.path.join(allocator, &.{glew_path, "lib"}) catch |err| {
+        std.debug.print("{s}", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(glew_lib_path);
+
+    exe.addIncludePath(glew_include_path);
+    exe.addLibraryPath(glew_lib_path);
 
     exe.linkSystemLibrary("opengl32");
     exe.linkSystemLibrary("sdl2");

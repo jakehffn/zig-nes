@@ -1,16 +1,32 @@
-# ZigNES 🕹️
+<h1 align=center>
+    ZigNES 🕹️
+</h1>  
+<h4 align=center>
+    NES emulator written in Zig with GUI using imgui.
+</h4>
 
-**NES emulator written in Zig**
+---
+
+![ZigNES exampe](media/example-lawn-mower.png)
 
 Currently, only the NROM mapper is supported and there is no sound.
 
 This can run games like Super Mario Bros., Donkey Kong, and PacMan.
 
-## Build and Usage
-Building with Zig is as simple as running `zig build` in the top project directory. The build file assumes that SDL2 is installed in the directory `"C:\lib\SDL2-2.26.4\"`.
+## Build
 
-To use the emulator, pass the path to a ROM to the built `ZigNES` executable.
+Clone this repository somewhere on your machine with the following:
 
+`git clone --recurse-submodules https://github.com/jakehffn/zig-nes.git && cd zig-nes`
+
+If environment variables for `SDL2_PATH` and `GLEW_PATH` are set, ZigNES can be build with,
+
+`zig build`
+
+The build file also expects the `SDL2` shared libary to have the extension, `.dll`, so other distributions of `SDL2` may require a little tweaking to `build.zig`.
+
+
+## Usage
 ### Controls
 | Key | Action |
 |-----|---------|

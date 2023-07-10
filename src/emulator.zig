@@ -71,6 +71,9 @@ pub fn loadRom(self: *Self, rom_path: []const u8, allocator: Allocator) void {
 }
 
 pub fn stepFrame(self: *Self) void {
+    if (self.rom == null) {
+        return;
+    }
     // This is about the number of cpu cycles per frame
     for (0..29780) |_| {
         self.cpu.step();
@@ -87,12 +90,16 @@ pub fn setControllerStatus(self: *Self, controller_status: ControllerStatus) voi
 }
 
 pub fn getPaletteViewerPixels(self: *Self) *anyopaque {
-    self.ppu.palette_viewer.update();
+    if (self.rom != null) {
+        self.ppu.palette_viewer.update(&self.ppu);
+    }
     return &self.ppu.palette_viewer.data;
 }
 
 pub fn getSpriteViewerPixels(self: *Self) *anyopaque {
-    self.ppu.sprite_viewer.update();
+    if (self.rom != null) {
+        self.ppu.sprite_viewer.update(&self.ppu);
+    }
     return &self.ppu.sprite_viewer.data;
 }
 

@@ -7,6 +7,11 @@ const BusCallback = Bus.BusCallback;
 const PpuBus = @import("../ppu/ppu_bus.zig");
 const MainBus = @import("../cpu/main_bus.zig");
 
+const PaletteViewer = @import("./debug/palette_viewer.zig");
+const SpriteViewer = @import("./debug/sprite_viewer.zig");
+
+const SystemPalettes = @import("./system_palettes.zig");
+
 const LoggingBusCallback = struct {
     fn logRead(
         comptime Outer: type, 
@@ -92,7 +97,9 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
         secondary_oam: [8]u8, // Will just hold indices into oam
         secondary_oam_size: u8 = 0,
 
+        palette: *const [64][3]u8,
         screen: Screen,
+
         palette_viewer: PaletteViewer,
         sprite_viewer: SpriteViewer,
         log_file: ?std.fs.File,
@@ -414,112 +421,13 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         };
 
-        pub const PaletteViewer = struct {
-            pub const width: usize = 4;
-            pub const height: usize = 8;
-
-            data: [width*height*3]u8 = undefined,
-
-            pub fn init() PaletteViewer {
-                var palette_viewer: PaletteViewer = .{};
-                @memset(palette_viewer.data[0..palette_viewer.data.len], 0);
-                return palette_viewer;
-            }
-
-            pub fn update(self: *PaletteViewer) void {
-                var ppu = @fieldParentPtr(Self, "palette_viewer", self);
-                // 8 palettes
-                for (0..8) |palette_index| {
-                    // 3 colors and a mirror per palette
-                    for (0..4) |palette_color_index| {
-                        const color_index = ppu.bus.readByte(
-                            0x3F00 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
-                        );
-                        var pixel = &palette[color_index % 64];
-                        const offset = palette_index * 3 * width + palette_color_index * 3;
-                        @memcpy(self.data[offset..offset + 3], pixel);
-                    }
-                }
-            }
-        };
-
-        pub const SpriteViewer = struct {
-            pub const width: usize = 8*8;
-            pub const height: usize = 8*8;
-
-            data: [width*height*3]u8 = undefined,
-
-            pub fn init() SpriteViewer {
-                var sprite_viewer: SpriteViewer = .{};
-                @memset(sprite_viewer.data[0..sprite_viewer.data.len], 0);
-                return sprite_viewer;
-            }
-
-            pub fn update(self: *SpriteViewer) void {
-                var ppu = @fieldParentPtr(Self, "sprite_viewer", self);
-                const sprite_bank: u16 = ppu.controller_register.flags.S;
-            
-                for (0..ppu.oam.len/4) |i| {
-                    const sprite_index = i * 4;
-                    const sprite_y = ppu.oam[sprite_index];
-                    _ = sprite_y;
-                    const tile: u16 = ppu.oam[sprite_index + 1];
-                    const palette_id: u2 = @truncate(ppu.oam[sprite_index + 2]);
-                    const flip_horizontal = ppu.oam[sprite_index + 2] >> 6 & 1 == 1;
-                    const flip_vertical = ppu.oam[sprite_index + 2] >> 7 & 1 == 1;
-                    const sprite_x = ppu.oam[sprite_index + 3];
-                    _ = sprite_x;
-
-                    const base_offset = (sprite_bank * 0x1000) + (tile * 16);
-
-                    for (0..8) |y| {
-                        var lower = ppu.bus.readByte(base_offset + @as(u16, @truncate(y)));
-                        var upper = ppu.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
-
-                        for (0..8) |x| {
-                            const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
-                            upper >>= 1;
-                            lower >>= 1;
-                            var color: u8 = undefined;
-                            if (palette_color == 0) {
-                                color = ppu.bus.readByte(0x3F00);
-                            } else {
-                                color = ppu.bus.readByte(0x3F10 + @as(u16, palette_id) * 4 + palette_color);
-                            }
-                            var pixel = &palette[color];
-                            const x_offset = if (flip_horizontal) x else (7 - x);
-                            const y_offset = if (flip_vertical) (7 - y) else y;
-                            const offset =  (((i / 8) * 8 + y_offset) * width + ((i % 8) * 8 + x_offset)) * 3;
-                            @memcpy(self.data[offset..offset + 3], pixel);
-                        }
-                    }
-                }
-            }
-        };
-
-        // TODO: Load palletes from somewhere else
-        const palette = [64][3]u8{
-            [_]u8{0x80, 0x80, 0x80}, [_]u8{0x00, 0x3D, 0xA6}, [_]u8{0x00, 0x12, 0xB0}, [_]u8{0x44, 0x00, 0x96}, [_]u8{0xA1, 0x00, 0x5E},
-            [_]u8{0xC7, 0x00, 0x28}, [_]u8{0xBA, 0x06, 0x00}, [_]u8{0x8C, 0x17, 0x00}, [_]u8{0x5C, 0x2F, 0x00}, [_]u8{0x10, 0x45, 0x00},
-            [_]u8{0x05, 0x4A, 0x00}, [_]u8{0x00, 0x47, 0x2E}, [_]u8{0x00, 0x41, 0x66}, [_]u8{0x00, 0x00, 0x00}, [_]u8{0x05, 0x05, 0x05},
-            [_]u8{0x05, 0x05, 0x05}, [_]u8{0xC7, 0xC7, 0xC7}, [_]u8{0x00, 0x77, 0xFF}, [_]u8{0x21, 0x55, 0xFF}, [_]u8{0x82, 0x37, 0xFA},
-            [_]u8{0xEB, 0x2F, 0xB5}, [_]u8{0xFF, 0x29, 0x50}, [_]u8{0xFF, 0x22, 0x00}, [_]u8{0xD6, 0x32, 0x00}, [_]u8{0xC4, 0x62, 0x00},
-            [_]u8{0x35, 0x80, 0x00}, [_]u8{0x05, 0x8F, 0x00}, [_]u8{0x00, 0x8A, 0x55}, [_]u8{0x00, 0x99, 0xCC}, [_]u8{0x21, 0x21, 0x21},
-            [_]u8{0x09, 0x09, 0x09}, [_]u8{0x09, 0x09, 0x09}, [_]u8{0xFF, 0xFF, 0xFF}, [_]u8{0x0F, 0xD7, 0xFF}, [_]u8{0x69, 0xA2, 0xFF},
-            [_]u8{0xD4, 0x80, 0xFF}, [_]u8{0xFF, 0x45, 0xF3}, [_]u8{0xFF, 0x61, 0x8B}, [_]u8{0xFF, 0x88, 0x33}, [_]u8{0xFF, 0x9C, 0x12},
-            [_]u8{0xFA, 0xBC, 0x20}, [_]u8{0x9F, 0xE3, 0x0E}, [_]u8{0x2B, 0xF0, 0x35}, [_]u8{0x0C, 0xF0, 0xA4}, [_]u8{0x05, 0xFB, 0xFF},
-            [_]u8{0x5E, 0x5E, 0x5E}, [_]u8{0x0D, 0x0D, 0x0D}, [_]u8{0x0D, 0x0D, 0x0D}, [_]u8{0xFF, 0xFF, 0xFF}, [_]u8{0xA6, 0xFC, 0xFF},
-            [_]u8{0xB3, 0xEC, 0xFF}, [_]u8{0xDA, 0xAB, 0xEB}, [_]u8{0xFF, 0xA8, 0xF9}, [_]u8{0xFF, 0xAB, 0xB3}, [_]u8{0xFF, 0xD2, 0xB0},
-            [_]u8{0xFF, 0xEF, 0xA6}, [_]u8{0xFF, 0xF7, 0x9C}, [_]u8{0xD7, 0xE8, 0x95}, [_]u8{0xA6, 0xED, 0xAF}, [_]u8{0xA2, 0xF2, 0xDA},
-            [_]u8{0x99, 0xFF, 0xFC}, [_]u8{0xDD, 0xDD, 0xDD}, [_]u8{0x11, 0x11, 0x11}, [_]u8{0x11, 0x11, 0x11}
-        }; 
-
         pub fn init(ppu_bus: *PpuBus) !Self {
             var ppu: Self = .{
                 .bus = &ppu_bus.bus,
                 .main_bus = undefined,
                 .oam = undefined,
                 .secondary_oam = undefined,
+                .palette = &SystemPalettes.default_palette,
                 .screen = Screen.init(),
                 .palette_viewer = PaletteViewer.init(),
                 .sprite_viewer = SpriteViewer.init(),
@@ -695,7 +603,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     }
                 }
 
-                var pixel_color = palette[self.bus.readByte(0x3F00 + pixel_color_address)];
+                var pixel_color = self.palette[self.bus.readByte(0x3F00 + pixel_color_address)];
                 self.screen.setPixel(self.dot - 1, self.scanline, &pixel_color);
             } 
             

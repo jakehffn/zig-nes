@@ -53,6 +53,8 @@ pub fn initStyles() void {
     styles.*.Colors[c_imgui.ImGuiCol_TitleBg] = main_bg_color;
     styles.*.Colors[c_imgui.ImGuiCol_TitleBgActive] = hover_color;
     styles.*.Colors[c_imgui.ImGuiCol_TextSelectedBg] = hover_color;
+    styles.*.Colors[c_imgui.ImGuiCol_FrameBg] = main_dark_color;
+    styles.*.Colors[c_imgui.ImGuiCol_PopupBg] = main_bg_color;
 
     // ---- Window stuff ----
     styles.*.Colors[c_imgui.ImGuiCol_Border] = main_dark_color;
