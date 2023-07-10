@@ -5,8 +5,6 @@
     NES emulator written in Zig with GUI using imgui.
 </h4>
 
----
-
 ![ZigNES exampe](media/example-lawn-mower.png)
 
 Currently, only the NROM mapper is supported and there is no sound.
@@ -19,7 +17,7 @@ Clone this repository somewhere on your machine with the following:
 
 `git clone --recurse-submodules https://github.com/jakehffn/zig-nes.git && cd zig-nes`
 
-If environment variables for `SDL2_PATH` and `GLEW_PATH` are set, ZigNES can be build with,
+If environment variables for `SDL2_PATH` and `GLEW_PATH` are set, ZigNES can be built with,
 
 `zig build`
 
