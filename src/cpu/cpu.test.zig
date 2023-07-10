@@ -64,6 +64,7 @@ const TestEnv = struct {
         for (state.ram orelse unreachable) |data| {
             env.bus.writeByte(data[0], data[1]);
         }
+        env.cpu.wait_cycles = 0;
     }
 
     fn checkState(env: *TestEnv, state: CpuState) bool {
@@ -122,7 +123,7 @@ const TestEnv = struct {
             const case = tests_json.value[i];
 
             setState(&test_env, case.initial);
-            _ = test_env.cpu.step();
+            test_env.cpu.step();
             const passed = checkState(&test_env, case.final);
 
             if (!passed) {
