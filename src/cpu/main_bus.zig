@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const Bus = @import("../bus/bus.zig");
 
 const Ppu = @import("../ppu/ppu.zig").Ppu;
+const Apu = @import("../apu/apu.zig");
 const Ram = @import("../bus/ram.zig").Ram;
 const Rom = @import("../rom/rom.zig");
 const MemoryMirror = @import("../bus/memory_mirror.zig").MemoryMirror;
@@ -19,6 +20,7 @@ rom_mirror: MemoryMirror(0x8000, 0xC000) = .{},
 controller: Controller = .{},
 
 nmi: bool = false,
+irq: bool = false,
 
 pub fn init(allocator: Allocator) !Self {
 
@@ -28,7 +30,7 @@ pub fn init(allocator: Allocator) !Self {
     };
 }
 
-pub fn setCallbacks(self: *Self, ppu: anytype) void {
+pub fn setCallbacks(self: *Self, ppu: anytype, apu: *Apu) void {
 
     self.bus.setCallbacks(
         self.cpu_ram.busCallback(), 
@@ -39,6 +41,7 @@ pub fn setCallbacks(self: *Self, ppu: anytype) void {
         0x0800, 0x2000
     );
     
+    // PPU registers
     self.bus.setCallback(ppu.controller_register.busCallback(), 0x2000);
     self.bus.setCallback(ppu.mask_register.busCallback(), 0x2001);
     self.bus.setCallback(ppu.status_register.busCallback(), 0x2002);
@@ -54,6 +57,14 @@ pub fn setCallbacks(self: *Self, ppu: anytype) void {
         self.ppu_registers_mirrors.busCallback(), 
         0x2008, 0x4000
     );
+
+    for (apu.pulse_channel_one.busCallbacks(), 0x4000..) |bc, i| {
+        self.bus.setCallback(bc, @truncate(i));
+    }
+    for (apu.pulse_channel_two.busCallbacks(), 0x4004..) |bc, i| {
+        self.bus.setCallback(bc, @truncate(i));
+    }
+    self.bus.setCallback(apu.frame_counter.busCallback(), 0x4017);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {

@@ -7,6 +7,8 @@ const Cpu = @import("./cpu/cpu.zig").Cpu;
 const PpuBus = @import("./ppu/ppu_bus.zig");
 const Ppu = @import("./ppu/ppu.zig").Ppu;
 
+const Apu = @import("./apu/apu.zig");
+
 const Ram = @import("./bus/ram.zig").Ram;
 const MemoryMirror = @import("./bus/memory_mirror.zig").MemoryMirror;
 const Rom = @import("./rom/rom.zig");
@@ -24,20 +26,24 @@ main_bus: MainBus = undefined,
 ppu: PpuType = undefined,
 ppu_bus: PpuBus = undefined,
 
+apu: Apu = .{},
+
 rom: ?Rom = null,
 
 pub fn init(self: *Self, allocator: Allocator) !void {
     self.ppu_bus = try PpuBus.init(allocator);
     self.ppu_bus.setCallbacks();
 
+    self.apu = try Apu.init();
+    self.cpu = try CpuType.init();
     self.ppu = try PpuType.init(&self.ppu_bus);
 
     self.main_bus = try MainBus.init(allocator);
-    self.main_bus.setCallbacks(&self.ppu);
+    self.main_bus.setCallbacks(&self.ppu, &self.apu);
 
-    self.cpu = try CpuType.init(&self.main_bus);
-
+    self.cpu.setMainBus(&self.main_bus);
     self.ppu.setMainBus(&self.main_bus);
+    self.apu.setMainBus(&self.main_bus);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -82,6 +88,8 @@ pub fn stepFrame(self: *Self) void {
         self.ppu.step();
         self.ppu.step();
         self.ppu.step();
+
+        self.apu.step();
     }
 }
 

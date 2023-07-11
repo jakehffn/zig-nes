@@ -20,6 +20,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
 
         bus: *Bus,
         nmi: *bool,
+        irq: *bool,
 
         total_cycles: u32 = 0,
         step_cycles: u8 = 0,
@@ -156,10 +157,11 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             }
         };
 
-        pub fn init(main_bus: *MainBus) !Self {
+        pub fn init() !Self {
             return .{
-                .bus = &main_bus.bus,
-                .nmi = &main_bus.nmi,
+                .bus = undefined,
+                .nmi = undefined,
+                .irq = undefined,
                 .log_file = blk: {
                     break :blk try std.fs.cwd().createFile(
                         debug_log_file_path orelse {break :blk undefined;}, 
@@ -169,10 +171,11 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             };
         }
 
-        pub fn initWithTestBus(bus: *Bus, nmi: *bool) !Self {
+        pub fn initWithTestBus(bus: *Bus, nmi: *bool, irq: *bool) !Self {
             return .{
                 .bus = bus,
                 .nmi = nmi,
+                .irq = irq,
                 .log_file = blk: {
                     break :blk try std.fs.cwd().createFile(
                         debug_log_file_path orelse {break :blk undefined;}, 
@@ -188,11 +191,44 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             }
         }
 
+        pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
+            self.bus = &main_bus.bus;
+            self.nmi = &main_bus.nmi;
+            self.irq = &main_bus.irq;
+        }
+
+        fn nonMaskableInterrupt(self: *Self) void {
+            self.stackPush(@truncate(self.pc >> 8));
+            self.stackPush(@truncate(self.pc));
+            self.stackPush(@bitCast(self.p));
+            self.p.I = 1;
+            // Note interrupt vector location
+            const addr_low: u16 = self.bus.readByte(0xFFFA);
+            const addr_high: u16 = self.bus.readByte(0xFFFB);
+            self.pc = (addr_high << 8) | addr_low;
+            self.total_cycles += 7;
+            self.nmi.* = false;
+        }
+
         pub fn reset(self: *Self) void {
+            // Note interrupt vector location
             const addr_low: u16 = self.bus.readByte(0xFFFC);
             const addr_high: u16 = self.bus.readByte(0xFFFD);
             self.pc = (addr_high << 8) | addr_low;
             self.total_cycles = 8;
+        }
+
+        fn interruptRequest(self: *Self) void {
+            self.stackPush(@truncate(self.pc >> 8));
+            self.stackPush(@truncate(self.pc));
+            self.stackPush(@bitCast(self.p));
+            self.p.I = 1;
+            // Note interrupt vector location
+            const addr_low: u16 = self.bus.readByte(0xFFFE);
+            const addr_high: u16 = self.bus.readByte(0xFFFF);
+            self.pc = (addr_high << 8) | addr_low;
+            self.total_cycles += 7;
+            self.nmi.* = false;
         }
 
         pub fn step(self: *Self) void {
@@ -202,7 +238,11 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             }
 
             if (self.nmi.*) {
-                self.nmiInterrupt();
+                self.nonMaskableInterrupt();
+            }
+
+            if (self.irq.*) {
+                self.interruptRequest();
             }
 
             self.step_cycles = 0;
@@ -233,17 +273,6 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             self.total_cycles +%= self.step_cycles;
 
             self.wait_cycles = self.step_cycles - 1;
-        }
-
-        fn nmiInterrupt(self: *Self) void {
-            self.stackPush(@truncate(self.pc >> 8));
-            self.stackPush(@truncate(self.pc));
-            self.stackPush(@bitCast(self.p));
-            self.p.I = 1;
-            const addr_low: u16 = self.bus.readByte(0xFFFA);
-            const addr_high: u16 = self.bus.readByte(0xFFFB);
-            self.pc = (addr_high << 8) | addr_low;
-            self.nmi.* = false;
         }
 
         inline fn branch(self: *Self, address: u16) void {

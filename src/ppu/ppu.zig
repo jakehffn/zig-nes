@@ -451,7 +451,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         }
 
-        pub fn setMainBus(self: *Self, main_bus: *MainBus) void {
+        pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
             self.main_bus = main_bus;
         }
 

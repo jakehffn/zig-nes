@@ -45,7 +45,7 @@ const TestEnv = struct {
     }
 
     fn initCpu(self: *Self) void {
-        self.cpu = Cpu(null).initWithTestBus(&self.bus, &self.unused) catch unreachable;
+        self.cpu = Cpu(null).initWithTestBus(&self.bus, &self.unused, &self.unused) catch unreachable;
     }
 
     fn deinit(self: *Self) void {

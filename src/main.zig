@@ -24,7 +24,7 @@ const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
 const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
 
 fn initSDL() void {
-    if (c_sdl.SDL_Init(c_sdl.SDL_INIT_VIDEO) != 0) {
+    if (c_sdl.SDL_Init(c_sdl.SDL_INIT_VIDEO | c_sdl.SDL_INIT_AUDIO) != 0) {
         std.debug.print("ZigNES: Failed to initialize SDL: {s}\n", .{c_sdl.SDL_GetError()});
         return;
     } 
@@ -245,15 +245,15 @@ var frame_end: u64 = 0;
 
 pub fn main() !void {
     var allocator = gpa.allocator();
-    try emulator.init(allocator);
-
-    // emulator.loadRom("./test-files/game-roms/Pac-Man (USA) (Namco).nes", allocator);
     
     initSDL();
     defer deinitSDL();
     initGl();
     initImgui();
     defer deinitImgui();
+
+    // Apu uses SDL, so emulator must be initialized after SDL
+    try emulator.init(allocator);
 
     gui.screen_texture = createTexture();
     gui.palette_viewer_texture = createTexture();
