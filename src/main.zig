@@ -44,9 +44,9 @@ fn initSDL() void {
         "ZigNES", 
         c_sdl.SDL_WINDOWPOS_CENTERED, 
         c_sdl.SDL_WINDOWPOS_CENTERED, 
-        1440, 
-        1080, 
-        c_sdl.SDL_WINDOW_SHOWN | c_sdl.SDL_WINDOW_RESIZABLE | c_sdl.SDL_WINDOW_OPENGL
+        0, 
+        0, 
+        c_sdl.SDL_WINDOW_HIDDEN | c_sdl.SDL_WINDOW_RESIZABLE | c_sdl.SDL_WINDOW_OPENGL
     );
 
     gl_context = c_sdl.SDL_GL_CreateContext(window);
