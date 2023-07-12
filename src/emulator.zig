@@ -34,16 +34,16 @@ pub fn init(self: *Self, allocator: Allocator) !void {
     self.ppu_bus = try PpuBus.init(allocator);
     self.ppu_bus.setCallbacks();
 
-    self.apu = try Apu.init();
+    try self.apu.init();
     self.cpu = try CpuType.init();
     self.ppu = try PpuType.init(&self.ppu_bus);
 
     self.main_bus = try MainBus.init(allocator);
     self.main_bus.setCallbacks(&self.ppu, &self.apu);
 
-    self.cpu.setMainBus(&self.main_bus);
-    self.ppu.setMainBus(&self.main_bus);
-    self.apu.setMainBus(&self.main_bus);
+    self.cpu.connectMainBus(&self.main_bus);
+    self.ppu.connectMainBus(&self.main_bus);
+    self.apu.connectMainBus(&self.main_bus);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -73,7 +73,7 @@ pub fn loadRom(self: *Self, rom_path: []const u8, allocator: Allocator) void {
     self.ppu_bus.loadRom(&self.rom.?);
 
     // Reset vectors only available at this point
-    self.cpu.reset();
+    self.reset();
 }
 
 pub fn stepFrame(self: *Self) void {
@@ -115,6 +115,7 @@ pub fn getScreenPixels(self: *Self) *anyopaque {
     return &self.ppu.screen.data;
 }
 
-pub fn resetCpu(self: *Self) void {
+pub fn reset(self: *Self) void {
     self.cpu.reset();
+    self.apu.reset();
 }

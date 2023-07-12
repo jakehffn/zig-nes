@@ -15,7 +15,7 @@ const Self = @This();
 
 not_quit: bool = true,
 paused: bool = false,
-resume_latch: bool = true,
+resume_latch: bool = false,
 
 screen_texture: c_uint,
 screen_scale: f32 = 2,
@@ -92,7 +92,7 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
                 }
             }
             if (c_imgui.igMenuItem_Bool("Reset", "", false, true)) {
-                emulator.resetCpu();
+                emulator.reset();
             }
             c_imgui.igEndMenu();
         }
