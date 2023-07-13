@@ -10,7 +10,7 @@ pub fn Ram(comptime N: usize) type {
         pub fn init() Self {
             var ram: Self = .{};
 
-            @memset(ram.ram[0..ram.ram.len], 0);
+            @memset(ram.ram[0..], 0);
 
             return ram;
         }

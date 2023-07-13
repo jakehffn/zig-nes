@@ -216,6 +216,10 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             const addr_high: u16 = self.bus.readByte(0xFFFD);
             self.pc = (addr_high << 8) | addr_low;
             self.total_cycles = 8;
+
+            self.p = @bitCast(@as(u8, 0));
+            self.total_cycles = 0;
+            self.wait_cycles = 0;
         }
 
         fn interruptRequest(self: *Self) void {

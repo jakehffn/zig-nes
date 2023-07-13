@@ -451,6 +451,11 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         }
 
+        pub fn reset(self: *Self) void {
+            @memset(self.screen.data[0..], 0);
+            self.status_register.flags = .{};
+        }
+
         pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
             self.main_bus = main_bus;
         }

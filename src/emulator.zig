@@ -26,7 +26,7 @@ main_bus: MainBus = undefined,
 ppu: PpuType = undefined,
 ppu_bus: PpuBus = undefined,
 
-apu: Apu = .{},
+apu: Apu = undefined,
 
 rom: ?Rom = null,
 
@@ -34,6 +34,7 @@ pub fn init(self: *Self, allocator: Allocator) !void {
     self.ppu_bus = try PpuBus.init(allocator);
     self.ppu_bus.setCallbacks();
 
+    self.apu = .{};
     try self.apu.init();
     self.cpu = try CpuType.init();
     self.ppu = try PpuType.init(&self.ppu_bus);
@@ -51,8 +52,9 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     self.ppu.deinit();
     self.main_bus.deinit(allocator);
     self.cpu.deinit();
+    self.apu.deinit();
 
-    if (self.rom) |rom| {
+    if (self.rom) |*rom| {
         rom.deinit();
     }
 }
@@ -65,6 +67,8 @@ pub fn loadRom(self: *Self, rom_path: []const u8, allocator: Allocator) void {
    
     self.rom = Rom.init(allocator);
     self.rom.?.load(rom_path) catch {
+        self.rom.?.deinit();
+        self.rom = null;
         std.debug.print("ZigNES: Unable to load ROM file", .{});
         return;
     };
@@ -117,5 +121,6 @@ pub fn getScreenPixels(self: *Self) *anyopaque {
 
 pub fn reset(self: *Self) void {
     self.cpu.reset();
+    self.ppu.reset();
     self.apu.reset();
 }

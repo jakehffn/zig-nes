@@ -72,6 +72,11 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     self.bus.deinit(allocator);
 }
 
+pub fn reset(self: *Self) void {
+    self.irq = false;
+    self.nmi = false;
+}
+
 pub fn loadRom(self: *Self, rom: *Rom) void {
     if (rom.prg_rom.array.items.len >= 0x8000) {
         self.bus.setCallbacks(

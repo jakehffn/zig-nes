@@ -107,7 +107,7 @@ pub fn init(allocator: Allocator, address_space_size: usize, default_callback: ?
 
     // Initializing with the default statically causes 20+ minute compile times
     // Do this instead
-    @memset(bus.bus_callbacks[0..bus.bus_callbacks.len], default_callback);
+    @memset(bus.bus_callbacks[0..], default_callback);
 
     return bus;
 }
