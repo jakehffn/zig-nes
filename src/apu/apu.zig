@@ -21,7 +21,7 @@ spec_requested: c_sdl.SDL_AudioSpec = .{
     .silence = undefined,
     .samples = sample_buffer_size,
     .size = undefined,
-    .callback = sdlAudioCallback,
+    .callback = null,
     .userdata = undefined,
     .padding = undefined
 },
@@ -29,15 +29,13 @@ spec_obtained: c_sdl.SDL_AudioSpec = undefined,
 audio_device: c_sdl.SDL_AudioDeviceID = undefined,
 sample_timer: u16 = 0,
 sample_buffer: [sample_buffer_size]u8 = undefined,
-sample_buffer_length: u16 = 0,
+sample_buffer_index: u16 = 0,
 
 odd_frame: bool = true,
-length_counters_enabled: bool = false,
 irq: *bool = undefined,
 
 pulse_channel_one: PulseChannel(true) = .{},
 pulse_channel_two: PulseChannel(false) = .{},
-pulse_channel_test: PulseChannel(true) = .{},
 
 status: struct {
     const Status = @This();
@@ -84,10 +82,10 @@ status: struct {
         self.flags.value = value;
 
         if (!self.flags.bits.pulse_one) {
-            apu.pulse_channel_one.length_counter.halt = true;
+            apu.pulse_channel_one.length_counter.counter = 0;
         }
         if (!self.flags.bits.pulse_two) {
-            apu.pulse_channel_two.length_counter.halt = true;
+            apu.pulse_channel_two.length_counter.counter = 0;
         }
         // TODO: Add the other two halts after adding triangle and noise
         // TODO: Do all dmc stuff needed here
@@ -199,20 +197,17 @@ fn apu_no_read(comptime Outer: type, comptime name: []const u8) fn (ptr: *Outer,
 }
 
 const LengthCounter = struct {
-    halt: bool = true,
+    halt: bool = false,
     counter: u8 = 0,
 
     const load_lengths = [_]u8 {
-        10, 254, 20,  2, 40,  4, 80,  6, 160,  8, 60, 10, 14, 12, 26, 14,
-        12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
+        10, 12, 254, 16, 20, 24, 2, 18, 40, 48, 4, 20, 80, 96, 6, 22,
+        160, 192, 8, 24, 60, 72, 10, 26, 14, 16, 12, 28, 26, 32, 14, 30
     };
 
     pub fn step(self: *LengthCounter) void {
-        if (!self.halt) {
-            self.counter -|= 1;
-        }
-        if (self.counter == 0) {
-            self.halt = true;
+        if (!self.halt and self.counter > 0) {
+            self.counter -= 1;
         }
     }
 
@@ -224,6 +219,7 @@ const LengthCounter = struct {
 fn PulseChannel(comptime is_pulse_one: bool) type {
     return struct {
         const PulseChannelType = @This();
+        const self_field_name = if (is_pulse_one) "pulse_channel_one" else "pulse_channel_two";
 
         timer: u11 = 0,
         timer_reset: packed union {
@@ -264,13 +260,10 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
         }
 
         pub fn output(self: *PulseChannelType) u8 {
-            // var apu = @fieldParentPtr(Self, if (is_pulse_one) "pulse_channel_one" else "pulse_channel_two", self);
-            // const channel_enabled = if (is_pulse_one) apu.status.flags.bits.pulse_one else apu.status.flags.bits.pulse_two;
+            var apu = @fieldParentPtr(Self, self_field_name, self);
+            const channel_enabled = if (is_pulse_one) apu.status.flags.bits.pulse_one else apu.status.flags.bits.pulse_two;
 
-            // if (!channel_enabled or (!self.length_counter.halt and self.length_counter.counter == 0)) {
-            //     return 0;
-            // }
-            if (self.timer < 8) {
+            if (!channel_enabled or self.length_counter.counter == 0 or self.timer < 8) {
                 return 0;
             }
             return duty_table[self.duty_cycle][self.waveform_counter];
@@ -284,13 +277,13 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
                 bits: packed struct {
                     v: u4,
                     c: bool,
-                    l: bool,
-                    D: u2
+                    length_counter_halt: bool,
+                    duty_cycle: u2
                 }
             } = .{.value = value};
 
-            self.duty_cycle = data.bits.D;
-            self.length_counter.halt = data.bits.l;
+            self.duty_cycle = data.bits.duty_cycle;
+            self.length_counter.halt = data.bits.length_counter_halt;
             // Constant/envelope flag
             // Volume/envelope divider period
         }
@@ -318,7 +311,11 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
                 }
             } = .{.value = value};
             self.timer_reset.bytes.high = data.bits.H;
-            self.length_counter.load(data.bits.l);
+            var apu = @fieldParentPtr(Self, self_field_name, self);
+            const channel_enabled = if (is_pulse_one) apu.status.flags.bits.pulse_one else apu.status.flags.bits.pulse_two;
+            if (channel_enabled) {
+                self.length_counter.load(data.bits.l);
+            }
             self.waveform_counter = 0;
         }
 
@@ -351,7 +348,6 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
 }
 
 pub fn init(self: *Self) !void {
-    self.spec_requested.userdata = self;
     self.audio_device = c_sdl.SDL_OpenAudioDevice(null, 0, &self.spec_requested, &self.spec_obtained, 0);
 
     if (self.audio_device == 0) {
@@ -359,9 +355,6 @@ pub fn init(self: *Self) !void {
         return error.Unable;
     }
     c_sdl.SDL_PauseAudioDevice(self.audio_device, 0);
-
-    self.pulse_channel_test.timer_reset.value = 1708; // Middle C
-    self.pulse_channel_test.duty_cycle = 2;
 }
 
 pub fn deinit(self: *Self) void {
@@ -372,7 +365,6 @@ pub fn deinit(self: *Self) void {
 
 pub fn reset(self: *Self) void {
     self.status.flags.value = 0;
-    self.irq.* = false;
 }
 
 pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
@@ -389,14 +381,6 @@ inline fn stepLengthCounters(self: *Self) void {
     self.pulse_channel_two.length_counter.step();
 }
 
-fn sdlAudioCallback(userdata: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
-    const self: *Self = @ptrCast(@alignCast(userdata.?));
-    const length: usize = @as(c_uint, @bitCast(len));
-    @memcpy(stream[0..length], self.sample_buffer[0..length]);
-    self.sample_buffer_length = 0;
-    self.sample_timer = 0;
-}
-
 fn getMix(self: *Self) u8 {
     // Mixer emulation and tables explained here: https://www.nesdev.org/wiki/APU_Mixer
     var data: u8 = 0;
@@ -406,13 +390,11 @@ fn getMix(self: *Self) u8 {
 }
 
 fn sample(self: *Self) void {
-    // If the callback set the length to zero, clear the old data
-    if (self.sample_buffer_length == 0) {
-        @memset(self.sample_buffer[0..self.sample_buffer.len], 0);
-    }
-    if (self.sample_buffer_length < self.sample_buffer.len) {
-        self.sample_buffer[self.sample_buffer_length] = self.getMix();
-        self.sample_buffer_length += 1;
+    if (c_sdl.SDL_GetQueuedAudioSize(self.audio_device) < sample_buffer_size * 7) {
+        if (self.sample_buffer_index < sample_buffer_size) {
+            self.sample_buffer[self.sample_buffer_index] = self.getMix();
+            self.sample_buffer_index += 1;
+        }
     }
 }
 
@@ -430,5 +412,9 @@ pub fn step(self: *Self) void {
         self.sample_timer = 0;
 
         self.sample();
+        if (self.sample_buffer_index == sample_buffer_size) {
+            _ = c_sdl.SDL_QueueAudio(self.audio_device, &self.sample_buffer, sample_buffer_size);
+            self.sample_buffer_index = 0;
+        }    
     }
 }
