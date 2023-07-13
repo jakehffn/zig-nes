@@ -37,6 +37,8 @@ irq: *bool = undefined,
 pulse_channel_one: PulseChannel(true) = .{},
 pulse_channel_two: PulseChannel(false) = .{},
 
+triangle_channel: TriangleChannel = .{},
+
 status: struct {
     const Status = @This();
     // Writing to status enables and disables channels
@@ -109,13 +111,16 @@ frame_counter: struct {
         self.counter += 1;
         
         if (self.counter == 7457) {
-            // Clock envelopes and triangle's linear counters
+            // Clock envelopes
+            apu.triangle_channel.linear_counter.step();
         } else if (self.counter == 14913) {
-            // Clock envelopes and triangle's linear counters
+            // Clock envelopes
+            apu.triangle_channel.linear_counter.step();
             // Clock length counters and sweep units
             apu.stepLengthCounters();
         } else if (self.counter == 22371) {
-            // Clock envelopes and triangle's linear counters
+            // Clock envelopes
+            apu.triangle_channel.linear_counter.step();
         }
 
         if (!self.mode) {
@@ -125,7 +130,8 @@ frame_counter: struct {
                     apu.updateIrq();
                 }
             } else if (self.counter == 29829) {
-                // Clock Envelopes and triangle's linear counter
+                // Clock Envelopes
+                apu.triangle_channel.linear_counter.step();
                 // Clock length counters and sweep units
                 apu.stepLengthCounters();
                 if (!self.interrupt_inhibited) {
@@ -142,7 +148,8 @@ frame_counter: struct {
             }
         } else {
             if (self.counter == 37281) {
-                // Clock Envelopes and triangle's linear counter
+                // Clock Envelopes
+                apu.triangle_channel.linear_counter.step();
                 // Clock length counters and sweep units
                 apu.stepLengthCounters();
             } else if (self.counter == 37282) {
@@ -263,7 +270,7 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
             var apu = @fieldParentPtr(Self, self_field_name, self);
             const channel_enabled = if (is_pulse_one) apu.status.flags.bits.pulse_one else apu.status.flags.bits.pulse_two;
 
-            if (!channel_enabled or self.length_counter.counter == 0 or self.timer < 8) {
+            if (!channel_enabled or self.length_counter.counter == 0 or self.timer_reset.value < 8) {
                 return 0;
             }
             return duty_table[self.duty_cycle][self.waveform_counter];
@@ -347,6 +354,133 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
     }; 
 }
 
+const TriangleChannel = struct {
+    timer: u11 = 0,
+    timer_reset: packed union {
+        value: u11,
+        bytes: packed struct {
+            low: u8 = 0,
+            high: u3 = 0
+        }
+    } = .{.value = 0},
+    linear_counter: struct {
+        const LinearCounter = @This();
+
+        counter: u7 = 0,
+        reload_value: u7 = 0,
+        reload: bool = false,
+
+        pub fn step(self: *LinearCounter) void {
+            if (self.reload) {
+                self.counter = self.reload_value;
+            } else {
+                if (self.counter != 0) {
+                    self.counter -= 1;
+                }
+            }
+            var triangle_channel = @fieldParentPtr(TriangleChannel, "linear_counter", self);
+            if (!triangle_channel.length_counter.halt) {
+                self.reload = false;
+            }
+        }
+    } = .{},
+    control: bool = false,
+    waveform_counter: u5 = 0,
+    length_counter: LengthCounter = .{},
+
+    const sequence = [32]u8{
+        15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+    };
+
+    pub fn step(self: *TriangleChannel) void {
+        if (self.timer == 0) {
+            self.timer = self.timer_reset.value;
+            if (self.length_counter.counter != 0 and self.linear_counter.counter != 0) {
+                self.waveform_counter -%= 1;
+            }
+        } else {
+            self.timer -= 1;
+        }
+    }
+
+    pub fn output(self: *TriangleChannel) u8 {
+        var apu = @fieldParentPtr(Self, "triangle_channel", self);
+
+        if (!apu.status.flags.bits.triangle or self.length_counter.counter == 0 or 
+            self.linear_counter.counter == 0 or self.timer_reset.value < 2) {
+                return 0;
+        }
+        return sequence[self.waveform_counter];
+    }
+
+    fn linearCounterWrite(self: *TriangleChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                counter_reload: u7,
+                c: bool
+            }
+        } = .{.value = value};
+
+        self.linear_counter.reload_value = data.bits.counter_reload;
+        self.length_counter.halt = data.bits.c;
+        // Constant/envelope flag
+        // Volume/envelope divider period
+    }
+
+    fn timerLowRegisterWrite(self: *TriangleChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        self.timer_reset.bytes.low = value;
+    }
+
+    fn fourthRegisterWrite(self: *TriangleChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                timer_high: u3,
+                l: u5
+            }
+        } = .{.value = value};
+        self.timer_reset.bytes.high = data.bits.timer_high;
+        var apu = @fieldParentPtr(Self, "triangle_channel", self);
+        if (apu.status.flags.bits.triangle) {
+            self.length_counter.load(data.bits.l);
+        }
+        self.linear_counter.reload = true;
+    }
+
+    pub fn busCallbacks(self: *TriangleChannel) [4]BusCallback {
+        return [_]BusCallback{
+            BusCallback.init(
+                self, 
+                apu_no_read(TriangleChannel, "Triangle First"), 
+                TriangleChannel.linearCounterWrite
+            ), // $4008
+            BusCallback.init(
+                self, 
+                apu_no_read(TriangleChannel, "Triangle Unused"), 
+                BusCallback.noWrite(TriangleChannel, "Triangle Unused", false)
+            ), // $4009
+            BusCallback.init(
+                self, 
+                apu_no_read(TriangleChannel, "Triangle Timer Low"), 
+                TriangleChannel.timerLowRegisterWrite
+            ), // $400A
+            BusCallback.init(
+                self, 
+                apu_no_read(TriangleChannel, "Triangle Fourth"), 
+                TriangleChannel.fourthRegisterWrite
+            ), // $400B
+        };
+    }
+};
+
 pub fn init(self: *Self) !void {
     self.audio_device = c_sdl.SDL_OpenAudioDevice(null, 0, &self.spec_requested, &self.spec_obtained, 0);
 
@@ -379,13 +513,16 @@ inline fn updateIrq(self: *Self) void {
 inline fn stepLengthCounters(self: *Self) void {
     self.pulse_channel_one.length_counter.step();
     self.pulse_channel_two.length_counter.step();
+
+    self.triangle_channel.length_counter.step();
 }
 
 fn getMix(self: *Self) u8 {
     // Mixer emulation and tables explained here: https://www.nesdev.org/wiki/APU_Mixer
     var data: u8 = 0;
-    data += self.pulse_channel_one.output();
-    data += self.pulse_channel_two.output();
+    data += self.pulse_channel_one.output()*2;
+    data += self.pulse_channel_two.output()*2;
+    data += self.triangle_channel.output();
     return data*2;
 }
 
@@ -406,6 +543,8 @@ pub fn step(self: *Self) void {
         self.pulse_channel_one.step();
         self.pulse_channel_two.step();
     }
+
+    self.triangle_channel.step();
 
     self.sample_timer += 1;
     if (self.sample_timer == @as(u16, @intFromFloat(cycles_per_sample))) {
