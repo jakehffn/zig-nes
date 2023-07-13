@@ -36,8 +36,8 @@ irq: *bool = undefined,
 
 pulse_channel_one: PulseChannel(true) = .{},
 pulse_channel_two: PulseChannel(false) = .{},
-
 triangle_channel: TriangleChannel = .{},
+noise_channel: NoiseChannel = .{},
 
 status: struct {
     const Status = @This();
@@ -65,8 +65,8 @@ status: struct {
         var return_flags = @TypeOf(self.flags){.value = 0};
         return_flags.bits.pulse_one = !apu.pulse_channel_one.length_counter.halt;
         return_flags.bits.pulse_two = !apu.pulse_channel_two.length_counter.halt;
-        return_flags.bits.triangle = false; // TODO: Change when triangle channel is added
-        return_flags.bits.noise = false; // TODO: Change when noise channel is added
+        return_flags.bits.triangle = !apu.triangle_channel.length_counter.halt;
+        return_flags.bits.noise = !apu.noise_channel.length_counter.halt;
         return_flags.bits.F = apu.frame_counter.frame_interrupt;
         return_flags.bits.I = false; // TODO: Change when dmc added
 
@@ -89,7 +89,12 @@ status: struct {
         if (!self.flags.bits.pulse_two) {
             apu.pulse_channel_two.length_counter.counter = 0;
         }
-        // TODO: Add the other two halts after adding triangle and noise
+        if (!self.flags.bits.triangle) {
+            apu.triangle_channel.length_counter.counter = 0;
+        }
+        if (!self.flags.bits.noise) {
+            apu.noise_channel.length_counter.counter = 0;
+        }
         // TODO: Do all dmc stuff needed here
     }
 
@@ -459,7 +464,7 @@ const TriangleChannel = struct {
         return [_]BusCallback{
             BusCallback.init(
                 self, 
-                apu_no_read(TriangleChannel, "Triangle First"), 
+                apu_no_read(TriangleChannel, "Triangle Linear Counter"), 
                 TriangleChannel.linearCounterWrite
             ), // $4008
             BusCallback.init(
@@ -477,6 +482,121 @@ const TriangleChannel = struct {
                 apu_no_read(TriangleChannel, "Triangle Fourth"), 
                 TriangleChannel.fourthRegisterWrite
             ), // $400B
+        };
+    }
+};
+
+const NoiseChannel = struct {
+    timer: u12 = 0,
+    timer_reset: u12 = 0,
+    mode: bool = false,
+    length_counter: LengthCounter = .{},
+
+    lfsr: packed union {
+        value: u15,
+        bits: packed struct {
+            zero: u1,
+            one: u1,
+            unused_one: u4,
+            six: u1,
+            unused_two: u7,
+            fourteen: u1
+        }
+    } = .{.value = 1},
+
+    const timer_period_table = [16]u12{
+        4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
+    };
+
+    pub fn step(self: *NoiseChannel) void {
+        if (self.timer == 0) {
+            self.timer = self.timer_reset;
+            const feedback = self.lfsr.bits.zero ^ if (self.mode) self.lfsr.bits.six else self.lfsr.bits.one;
+            self.lfsr.value >>= 1;
+            self.lfsr.bits.fourteen = feedback;
+        } else {
+            self.timer -= 1;
+        }
+    }
+
+    pub fn output(self: *NoiseChannel) u8 {
+        var apu = @fieldParentPtr(Self, "noise_channel", self);
+
+        if (!apu.status.flags.bits.noise or self.length_counter.counter == 0) {
+                return 0;
+        }
+        return 1 - self.lfsr.bits.zero;
+    }
+
+    fn firstRegisterWrite(self: *NoiseChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                envelope_period: u4,
+                constant_volume: bool,
+                length_counter_halt: bool,
+                _: u2
+            }
+        } = .{.value = value};
+
+        self.length_counter.halt = data.bits.length_counter_halt;
+        // TODO: Constant/envelope flag
+        // TODO: Volume/envelope divider period
+    }
+
+    fn secondRegisterWrite(self: *NoiseChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                timer_reset_index: u4,
+                _: u3,
+                mode: bool
+            }
+        } = .{.value = value};
+        self.timer_reset = timer_period_table[data.bits.timer_reset_index];
+        self.mode = data.bits.mode;
+    }
+
+    fn fourthRegisterWrite(self: *NoiseChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                _: u3,
+                length_counter_reload: u5
+            }
+        } = .{.value = value};
+        self.length_counter.load(data.bits.length_counter_reload);
+        // TODO: envelope restart
+    }
+
+    pub fn busCallbacks(self: *NoiseChannel) [4]BusCallback {
+        return [_]BusCallback{
+            BusCallback.init(
+                self, 
+                apu_no_read(NoiseChannel, "Noise First"), 
+                NoiseChannel.firstRegisterWrite
+            ), // $400C
+            BusCallback.init(
+                self, 
+                apu_no_read(NoiseChannel, "Noise Unused"), 
+                BusCallback.noWrite(NoiseChannel, "Noise Unused", false)
+            ), // $400D
+            BusCallback.init(
+                self, 
+                apu_no_read(NoiseChannel, "Noise Second"), 
+                NoiseChannel.secondRegisterWrite
+            ), // $400E
+            BusCallback.init(
+                self, 
+                apu_no_read(NoiseChannel, "Noise Fourth"), 
+                NoiseChannel.fourthRegisterWrite
+            ), // $400F
         };
     }
 };
@@ -513,8 +633,8 @@ inline fn updateIrq(self: *Self) void {
 inline fn stepLengthCounters(self: *Self) void {
     self.pulse_channel_one.length_counter.step();
     self.pulse_channel_two.length_counter.step();
-
     self.triangle_channel.length_counter.step();
+    self.noise_channel.length_counter.step();
 }
 
 fn getMix(self: *Self) u8 {
@@ -523,6 +643,7 @@ fn getMix(self: *Self) u8 {
     data += self.pulse_channel_one.output()*2;
     data += self.pulse_channel_two.output()*2;
     data += self.triangle_channel.output();
+    data += self.noise_channel.output();
     return data*2;
 }
 
@@ -542,6 +663,7 @@ pub fn step(self: *Self) void {
 
         self.pulse_channel_one.step();
         self.pulse_channel_two.step();
+        self.noise_channel.step();
     }
 
     self.triangle_channel.step();
