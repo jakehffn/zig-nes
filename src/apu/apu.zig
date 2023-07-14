@@ -329,7 +329,7 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
                 return 0;
             }
             if (duty_table[self.duty_cycle][self.waveform_counter] == 1) {
-                return self.envelope.divider_reset_value;
+                return self.envelope.output();
             } else {
                 return 0;
             }
