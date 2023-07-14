@@ -151,7 +151,7 @@ frame_counter: struct {
         } else if (self.counter == 14913) {
             apu.stepEnvelopes();
             apu.triangle_channel.linear_counter.step();
-            // Clock sweep units
+            apu.stepSweeps();
             apu.stepLengthCounters();
         } else if (self.counter == 22371) {
             apu.stepEnvelopes();
@@ -167,7 +167,7 @@ frame_counter: struct {
             } else if (self.counter == 29829) {
                 apu.stepEnvelopes();
                 apu.triangle_channel.linear_counter.step();
-                // Clock sweep units
+                apu.stepSweeps();
                 apu.stepLengthCounters();
                 if (!self.interrupt_inhibited) {
                     self.frame_interrupt = true;
@@ -185,7 +185,7 @@ frame_counter: struct {
             if (self.counter == 37281) {
                 apu.stepEnvelopes();
                 apu.triangle_channel.linear_counter.step();
-                // sweep units
+                apu.stepSweeps();
                 apu.stepLengthCounters();
             } else if (self.counter == 37282) {
                 self.counter = 1;
@@ -326,6 +326,11 @@ pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
 
 inline fn updateIrq(self: *Self) void {
     self.irq.* = self.frame_counter.frame_interrupt or self.dmc_channel.dmc_interrupt;
+}
+
+inline fn stepSweeps(self: *Self) void {
+    self.pulse_channel_one.sweep.step();
+    self.pulse_channel_two.sweep.step();
 }
 
 inline fn stepEnvelopes(self: *Self) void {

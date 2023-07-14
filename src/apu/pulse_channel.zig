@@ -19,22 +19,54 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
                 high: u3 = 0
             }
         } = .{.value = 0},
-        sweep: packed union {
-            value: u8,
-            bits: packed struct {
-                shift: u3 = 0,
-                negate: bool = false,
-                divider_period: u3 = 0,
-                enable: bool = false
-            }
-        } = .{.value = 0},
 
-        sweep_reload: bool = false,
         waveform_counter: u3 = 0,
         duty_cycle: u2 = 0, // Determines the cycle used from the duty table
 
         envelope: Envelope = .{},
         length_counter: LengthCounter = .{},
+        sweep: struct {
+            const Sweep = @This();
+
+            shift: u3 = 0,
+            negate: bool = false,
+            divider: u3 = 0,
+            divider_period: u3 = 0,
+            enabled: bool = false,
+            target_period: u11 = 0,
+            reload: bool = false,
+
+            pub fn step(self: *Sweep) void {
+                var pulse_channel = @fieldParentPtr(Self, "sweep", self);
+                const current_period = pulse_channel.timer_reset.value;
+
+                self.target_period = self.getTargetPeriod(current_period);
+
+                if (self.divider == 0 and self.enabled and current_period >= 8 and self.target_period < 0x800) {
+                    pulse_channel.timer_reset.value = self.target_period;
+                }
+
+                if (self.divider == 0 or self.reload) {
+                    self.divider = self.divider_period;
+                    self.reload = false;
+                } else {
+                    self.divider -= 1;
+                }
+            }
+
+            fn getTargetPeriod(self: *Sweep, current_period: u11) u11 {
+                var change_amount = current_period >> self.shift;
+                if (!self.negate) {
+                    return current_period +| change_amount;
+                } else {
+                    if (is_pulse_one) {
+                        return current_period -| change_amount -| 1;
+                    } else {
+                        return current_period -| change_amount;
+                    }
+                }
+            }
+        } = .{},
 
         const duty_table = [4][8]u8{
             [_]u8{0, 0, 0, 0, 0, 0, 0, 1},
@@ -53,7 +85,8 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
         }
 
         pub fn output(self: *Self) u8 {
-            if (!self.channel_enabled or self.length_counter.counter == 0 or self.timer_reset.value < 8) {
+            if (!self.channel_enabled or self.length_counter.counter == 0 or 
+                self.timer_reset.value < 8 or self.sweep.target_period >= 0x800) {
                 return 0;
             }
             if (duty_table[self.duty_cycle][self.waveform_counter] == 1) {
@@ -86,7 +119,21 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
         fn sweepRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
             _ = bus;
             _ = address;
-            self.sweep.value = value;
+            var data: packed union {
+                value: u8,
+                bits: packed struct {
+                    shift: u3 = 0,
+                    negate: bool = false,
+                    divider_period: u3 = 0,
+                    enabled: bool = false
+                }
+            } = .{.value = value};
+
+            self.sweep.shift = data.bits.shift;
+            self.sweep.negate = data.bits.negate;
+            self.sweep.divider_period = data.bits.divider_period;
+            self.sweep.enabled = data.bits.enabled;
+            self.sweep.reload = true;
         }
 
         fn timerLowRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
