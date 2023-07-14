@@ -44,26 +44,24 @@ status: struct {
     const Status = @This();
     // Writing to status enables and disables channels
     // Reading from status reports on various conditions of the actual channels, not the flags
-    flags: packed union {
-        value: u8,
-        bits: packed struct {
-            pulse_one: bool,
-            pulse_two: bool,
-            triangle: bool,
-            noise: bool,
-            dmc_enabled: bool,
-            _: u1,
-            F: bool, // Only used on read
-            I: bool, // Only used on read
-        }
-    } = .{.value = 0},
-
     fn read(self: *Status, bus: *Bus, address: u16) u8 {
         _ = bus;
         _ = address;
         var apu = @fieldParentPtr(Self, "status", self);
 
-        var return_flags = @TypeOf(self.flags){.value = 0};
+        var return_flags: packed union {
+            value: u8,
+            bits: packed struct {
+                pulse_one: bool,
+                pulse_two: bool,
+                triangle: bool,
+                noise: bool,
+                dmc_enabled: bool,
+                _: u1,
+                F: bool, // Only used on read
+                I: bool, // Only used on read
+            }
+        } = .{.value = 0};
         return_flags.bits.pulse_one = !apu.pulse_channel_one.length_counter.halt;
         return_flags.bits.pulse_two = !apu.pulse_channel_two.length_counter.halt;
         return_flags.bits.triangle = !apu.triangle_channel.length_counter.halt;
@@ -82,25 +80,44 @@ status: struct {
         _ = address;
         var apu = @fieldParentPtr(Self, "status", self);
 
-        self.flags.value = value;
+        var flags: packed union {
+            value: u8,
+            bits: packed struct {
+                pulse_one: bool,
+                pulse_two: bool,
+                triangle: bool,
+                noise: bool,
+                dmc_enabled: bool,
+                _: u3
+            }
+        } = .{.value = value};
 
-        if (!self.flags.bits.pulse_one) {
+        apu.pulse_channel_one.channel_enabled = flags.bits.pulse_one;
+        if (!flags.bits.pulse_one) {
             apu.pulse_channel_one.length_counter.counter = 0;
         }
-        if (!self.flags.bits.pulse_two) {
+
+        apu.pulse_channel_two.channel_enabled = flags.bits.pulse_two;
+        if (!flags.bits.pulse_two) {
             apu.pulse_channel_two.length_counter.counter = 0;
         }
-        if (!self.flags.bits.triangle) {
+
+        apu.triangle_channel.channel_enabled = flags.bits.triangle;
+        if (!flags.bits.triangle) {
             apu.triangle_channel.length_counter.counter = 0;
         }
-        if (!self.flags.bits.noise) {
+
+        apu.noise_channel.channel_enabled = flags.bits.noise;
+        if (!flags.bits.noise) {
             apu.noise_channel.length_counter.counter = 0;
         }
-        if (!self.flags.bits.dmc_enabled) {
+
+        apu.dmc_channel.channel_enabled = flags.bits.dmc_enabled;
+        if (!flags.bits.dmc_enabled) {
             apu.dmc_channel.bytes_remaining = 0;
         } else {
             if (apu.dmc_channel.bytes_remaining != 0) {
-                self.flags.bits.dmc_enabled = false;
+                flags.bits.dmc_enabled = false;
             }
         }
         apu.dmc_channel.dmc_interrupt = false;
@@ -278,7 +295,8 @@ const LengthCounter = struct {
 fn PulseChannel(comptime is_pulse_one: bool) type {
     return struct {
         const PulseChannelType = @This();
-        const self_field_name = if (is_pulse_one) "pulse_channel_one" else "pulse_channel_two";
+        
+        channel_enabled: bool = true,
 
         timer: u11 = 0,
         timer_reset: packed union {
@@ -322,10 +340,7 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
         }
 
         pub fn output(self: *PulseChannelType) u8 {
-            var apu = @fieldParentPtr(Self, self_field_name, self);
-            const channel_enabled = if (is_pulse_one) apu.status.flags.bits.pulse_one else apu.status.flags.bits.pulse_two;
-
-            if (!channel_enabled or self.length_counter.counter == 0 or self.timer_reset.value < 8) {
+            if (!self.channel_enabled or self.length_counter.counter == 0 or self.timer_reset.value < 8) {
                 return 0;
             }
             if (duty_table[self.duty_cycle][self.waveform_counter] == 1) {
@@ -378,9 +393,7 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
                 }
             } = .{.value = value};
             self.timer_reset.bytes.high = data.bits.H;
-            var apu = @fieldParentPtr(Self, self_field_name, self);
-            const channel_enabled = if (is_pulse_one) apu.status.flags.bits.pulse_one else apu.status.flags.bits.pulse_two;
-            if (channel_enabled) {
+            if (self.channel_enabled) {
                 self.length_counter.load(data.bits.l);
             }
             self.envelope.start = true;
@@ -416,6 +429,8 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
 }
 
 const TriangleChannel = struct {
+    channel_enabled: bool = true,
+
     timer: u11 = 0,
     timer_reset: packed union {
         value: u11,
@@ -466,9 +481,7 @@ const TriangleChannel = struct {
     }
 
     pub fn output(self: *TriangleChannel) u8 {
-        var apu = @fieldParentPtr(Self, "triangle_channel", self);
-
-        if (!apu.status.flags.bits.triangle or self.length_counter.counter == 0 or 
+        if (!self.channel_enabled or self.length_counter.counter == 0 or 
             self.linear_counter.counter == 0 or self.timer_reset.value < 2) {
                 return 0;
         }
@@ -507,8 +520,7 @@ const TriangleChannel = struct {
             }
         } = .{.value = value};
         self.timer_reset.bytes.high = data.bits.timer_high;
-        var apu = @fieldParentPtr(Self, "triangle_channel", self);
-        if (apu.status.flags.bits.triangle) {
+        if (self.channel_enabled) {
             self.length_counter.load(data.bits.l);
         }
         self.linear_counter.reload = true;
@@ -541,6 +553,8 @@ const TriangleChannel = struct {
 };
 
 const NoiseChannel = struct {
+    channel_enabled: bool = true,
+
     timer: u12 = 0,
     timer_reset: u12 = 0,
     mode: bool = false,
@@ -576,9 +590,7 @@ const NoiseChannel = struct {
     }
 
     pub fn output(self: *NoiseChannel) u8 {
-        var apu = @fieldParentPtr(Self, "noise_channel", self);
-
-        if (!apu.status.flags.bits.noise or self.length_counter.counter == 0 or self.lfsr.bits.zero == 1) {
+        if (!self.channel_enabled or self.length_counter.counter == 0 or self.lfsr.bits.zero == 1) {
             return 0;
         }
         return self.envelope.output();
@@ -659,6 +671,8 @@ const NoiseChannel = struct {
 };
 
 const DmcChannel = struct {
+    channel_enabled: bool = true,
+
     timer: u12 = 0,
     timer_reset: u12 = 0,
     loop: bool = false,
@@ -684,8 +698,7 @@ const DmcChannel = struct {
     };
 
     pub fn step(self: *DmcChannel) void {
-        var apu = @fieldParentPtr(Self, "dmc_channel", self);
-        if (!apu.status.flags.bits.dmc_enabled) {
+        if (!self.channel_enabled) {
             return;
         }
 
@@ -724,9 +737,7 @@ const DmcChannel = struct {
     }
 
     pub fn output(self: *DmcChannel) u8 {
-        var apu = @fieldParentPtr(Self, "dmc_channel", self);
-
-        if (!apu.status.flags.bits.dmc_enabled) {
+        if (!self.channel_enabled) {
             return 0;
         }
         return self.output_level;
@@ -837,7 +848,9 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn reset(self: *Self) void {
-    self.status.flags.value = 0;
+    var unused_callback = [_]?BusCallback{null};
+    var unused_bus = Bus{.bus_callbacks = &unused_callback};
+    self.status.write(&unused_bus, 0, 0);
 }
 
 pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
