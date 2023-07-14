@@ -70,6 +70,9 @@ pub fn setCallbacks(self: *Self, ppu: anytype, apu: *Apu) void {
     for (apu.noise_channel.busCallbacks(), 0x400C..) |bc, i| {
         self.bus.setCallback(bc, @truncate(i));
     }
+    for (apu.dmc_channel.busCallbacks(), 0x4010..) |bc, i| {
+        self.bus.setCallback(bc, @truncate(i));
+    }
     self.bus.setCallback(apu.status.busCallback(), 0x4015);
     self.bus.setCallback(apu.frame_counter.busCallback(), 0x4017);
 }

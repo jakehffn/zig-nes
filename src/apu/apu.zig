@@ -38,6 +38,7 @@ pulse_channel_one: PulseChannel(true) = .{},
 pulse_channel_two: PulseChannel(false) = .{},
 triangle_channel: TriangleChannel = .{},
 noise_channel: NoiseChannel = .{},
+dmc_channel: DmcChannel = .{},
 
 status: struct {
     const Status = @This();
@@ -68,7 +69,7 @@ status: struct {
         return_flags.bits.triangle = !apu.triangle_channel.length_counter.halt;
         return_flags.bits.noise = !apu.noise_channel.length_counter.halt;
         return_flags.bits.F = apu.frame_counter.frame_interrupt;
-        return_flags.bits.I = false; // TODO: Change when dmc added
+        return_flags.bits.I = apu.dmc_channel.dmc_interrupt;
 
         apu.frame_counter.frame_interrupt = false;
         apu.updateIrq();
@@ -95,7 +96,14 @@ status: struct {
         if (!self.flags.bits.noise) {
             apu.noise_channel.length_counter.counter = 0;
         }
-        // TODO: Do all dmc stuff needed here
+        if (!self.flags.bits.dmc_enabled) {
+            apu.dmc_channel.bytes_remaining = 0;
+        } else {
+            if (apu.dmc_channel.bytes_remaining != 0) {
+                self.flags.bits.dmc_enabled = false;
+            }
+        }
+        apu.dmc_channel.dmc_interrupt = false;
     }
 
     pub fn busCallback(self: *Status) BusCallback {
@@ -116,15 +124,15 @@ frame_counter: struct {
         self.counter += 1;
         
         if (self.counter == 7457) {
-            // Clock envelopes
+            apu.stepEnvelopes();
             apu.triangle_channel.linear_counter.step();
         } else if (self.counter == 14913) {
-            // Clock envelopes
+            apu.stepEnvelopes();
             apu.triangle_channel.linear_counter.step();
-            // Clock length counters and sweep units
+            // Clock sweep units
             apu.stepLengthCounters();
         } else if (self.counter == 22371) {
-            // Clock envelopes
+            apu.stepEnvelopes();
             apu.triangle_channel.linear_counter.step();
         }
 
@@ -135,9 +143,9 @@ frame_counter: struct {
                     apu.updateIrq();
                 }
             } else if (self.counter == 29829) {
-                // Clock Envelopes
+                apu.stepEnvelopes();
                 apu.triangle_channel.linear_counter.step();
-                // Clock length counters and sweep units
+                // Clock sweep units
                 apu.stepLengthCounters();
                 if (!self.interrupt_inhibited) {
                     self.frame_interrupt = true;
@@ -153,9 +161,9 @@ frame_counter: struct {
             }
         } else {
             if (self.counter == 37281) {
-                // Clock Envelopes
+                apu.stepEnvelopes();
                 apu.triangle_channel.linear_counter.step();
-                // Clock length counters and sweep units
+                // sweep units
                 apu.stepLengthCounters();
             } else if (self.counter == 37282) {
                 self.counter = 1;
@@ -208,13 +216,52 @@ fn apu_no_read(comptime Outer: type, comptime name: []const u8) fn (ptr: *Outer,
     return BusCallback.noRead(Outer, "Cannot read from APU: " ++ name, false);
 }
 
+const Envelope = struct {
+    start: bool = false,
+    loop: bool = false, // Is the same as the length counter halt
+    constant_volume: bool = false,
+
+    divider: u4 = 0, 
+    divider_reset_value: u4 = 0,
+    decay_level: u4 = 0,
+
+    pub fn step(self: *Envelope) void {
+        if (!self.start) {
+            if (self.divider != 0) {
+                self.divider -= 1;
+            } else {
+                self.divider = self.divider_reset_value;
+                if (self.decay_level != 0) {
+                    self.decay_level -= 1;
+                } else {
+                    if (self.loop) {
+                        self.decay_level = 15;
+                    }
+                }
+            }
+        } else {
+            self.start = false;
+            self.decay_level = 15;
+            self.divider = self.divider_reset_value;
+        }
+    }
+
+    pub fn output(self: *Envelope) u8 {
+        if (self.constant_volume) {
+            return self.divider_reset_value;
+        } else {
+            return self.decay_level;
+        }
+    }
+};
+
 const LengthCounter = struct {
-    halt: bool = false,
+    halt: bool = true,
     counter: u8 = 0,
 
     const load_lengths = [_]u8 {
-        10, 12, 254, 16, 20, 24, 2, 18, 40, 48, 4, 20, 80, 96, 6, 22,
-        160, 192, 8, 24, 60, 72, 10, 26, 14, 16, 12, 28, 26, 32, 14, 30
+        10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14,
+        12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
     };
 
     pub fn step(self: *LengthCounter) void {
@@ -250,10 +297,13 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
                 enable: bool = false
             }
         } = .{.value = 0},
+
         sweep_reload: bool = false,
         waveform_counter: u3 = 0,
-        length_counter: LengthCounter = .{},
         duty_cycle: u2 = 0, // Determines the cycle used from the duty table
+
+        envelope: Envelope = .{},
+        length_counter: LengthCounter = .{},
 
         const duty_table = [4][8]u8{
             [_]u8{0, 0, 0, 0, 0, 0, 0, 1},
@@ -278,7 +328,11 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
             if (!channel_enabled or self.length_counter.counter == 0 or self.timer_reset.value < 8) {
                 return 0;
             }
-            return duty_table[self.duty_cycle][self.waveform_counter];
+            if (duty_table[self.duty_cycle][self.waveform_counter] == 1) {
+                return self.envelope.divider_reset_value;
+            } else {
+                return 0;
+            }
         }
 
         fn firstRegsiterWrite(self: *PulseChannelType, bus: *Bus, address: u16, value: u8) void {
@@ -287,8 +341,8 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
             const data: packed union {
                 value: u8,
                 bits: packed struct {
-                    v: u4,
-                    c: bool,
+                    divider_reset_value: u4,
+                    constant_volume: bool,
                     length_counter_halt: bool,
                     duty_cycle: u2
                 }
@@ -296,8 +350,9 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
 
             self.duty_cycle = data.bits.duty_cycle;
             self.length_counter.halt = data.bits.length_counter_halt;
-            // Constant/envelope flag
-            // Volume/envelope divider period
+            self.envelope.loop = data.bits.length_counter_halt;
+            self.envelope.constant_volume = data.bits.constant_volume;
+            self.envelope.divider_reset_value = data.bits.divider_reset_value;
         }
 
         fn sweepRegisterWrite(self: *PulseChannelType, bus: *Bus, address: u16, value: u8) void {
@@ -328,6 +383,7 @@ fn PulseChannel(comptime is_pulse_one: bool) type {
             if (channel_enabled) {
                 self.length_counter.load(data.bits.l);
             }
+            self.envelope.start = true;
             self.waveform_counter = 0;
         }
 
@@ -432,8 +488,6 @@ const TriangleChannel = struct {
 
         self.linear_counter.reload_value = data.bits.counter_reload;
         self.length_counter.halt = data.bits.c;
-        // Constant/envelope flag
-        // Volume/envelope divider period
     }
 
     fn timerLowRegisterWrite(self: *TriangleChannel, bus: *Bus, address: u16, value: u8) void {
@@ -490,6 +544,8 @@ const NoiseChannel = struct {
     timer: u12 = 0,
     timer_reset: u12 = 0,
     mode: bool = false,
+
+    envelope: Envelope = .{},
     length_counter: LengthCounter = .{},
 
     lfsr: packed union {
@@ -522,10 +578,10 @@ const NoiseChannel = struct {
     pub fn output(self: *NoiseChannel) u8 {
         var apu = @fieldParentPtr(Self, "noise_channel", self);
 
-        if (!apu.status.flags.bits.noise or self.length_counter.counter == 0) {
-                return 0;
+        if (!apu.status.flags.bits.noise or self.length_counter.counter == 0 or self.lfsr.bits.zero == 1) {
+            return 0;
         }
-        return 1 - self.lfsr.bits.zero;
+        return self.envelope.output();
     }
 
     fn firstRegisterWrite(self: *NoiseChannel, bus: *Bus, address: u16, value: u8) void {
@@ -534,7 +590,7 @@ const NoiseChannel = struct {
         const data: packed union {
             value: u8,
             bits: packed struct {
-                envelope_period: u4,
+                divider_reset_value: u4,
                 constant_volume: bool,
                 length_counter_halt: bool,
                 _: u2
@@ -542,8 +598,9 @@ const NoiseChannel = struct {
         } = .{.value = value};
 
         self.length_counter.halt = data.bits.length_counter_halt;
-        // TODO: Constant/envelope flag
-        // TODO: Volume/envelope divider period
+        self.envelope.loop = data.bits.length_counter_halt;
+        self.envelope.divider_reset_value = data.bits.divider_reset_value;
+        self.envelope.constant_volume = data.bits.constant_volume;
     }
 
     fn secondRegisterWrite(self: *NoiseChannel, bus: *Bus, address: u16, value: u8) void {
@@ -572,7 +629,7 @@ const NoiseChannel = struct {
             }
         } = .{.value = value};
         self.length_counter.load(data.bits.length_counter_reload);
-        // TODO: envelope restart
+        self.envelope.start = true;
     }
 
     pub fn busCallbacks(self: *NoiseChannel) [4]BusCallback {
@@ -601,6 +658,168 @@ const NoiseChannel = struct {
     }
 };
 
+const DmcChannel = struct {
+    timer: u12 = 0,
+    timer_reset: u12 = 0,
+    loop: bool = false,
+    output_level: u7 = 0,
+    silence: bool = false,
+
+    sample_address: u16 = 0,
+    sample_length: u12 = 0,
+    sample_buffer: u8 = 0,
+    bits_remaining: u4 = 0,
+    shift_register: u8 = 0,
+
+    address_counter: u16 = 0,
+    bytes_remaining: u12 = 0,
+
+    interrupt_enabled: bool = false,
+    dmc_interrupt: bool = false,
+
+    bus: *Bus = undefined,
+
+    const rate_table = [16]u12{
+        428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106,  84,  72,  54
+    };
+
+    pub fn step(self: *DmcChannel) void {
+        var apu = @fieldParentPtr(Self, "dmc_channel", self);
+        if (!apu.status.flags.bits.dmc_enabled) {
+            return;
+        }
+
+        if (self.timer == 0) {
+            self.timer = self.timer_reset;
+
+            if (!self.silence) {
+                if (self.shift_register & 1 == 1) {
+                    if (self.output_level < 126) {
+                        self.output_level += 2;
+                    }
+                } else {
+                    if (self.output_level > 1) {
+                        self.output_level -= 2;
+                    }
+                }
+            }
+
+            self.shift_register >>= 1;
+            
+            self.bits_remaining -|= 1;
+            if (self.bits_remaining == 0) {
+                self.bits_remaining = 8;
+                if (self.sample_buffer == 0) {
+                    self.silence = true;
+                } else {
+                    self.silence = false;
+                    self.shift_register = self.sample_buffer;
+
+                    self.fillSampleBuffer();
+                }
+            }
+        } else {
+            self.timer -= 1;
+        }
+    }
+
+    pub fn output(self: *DmcChannel) u8 {
+        var apu = @fieldParentPtr(Self, "dmc_channel", self);
+
+        if (!apu.status.flags.bits.dmc_enabled) {
+            return 0;
+        }
+        return self.output_level;
+    }
+
+    inline fn fillSampleBuffer(self: *DmcChannel) void {
+        self.sample_buffer = self.bus.readByte(self.address_counter);
+        if (self.address_counter == 0xFFFF) {
+            self.address_counter = 0x8000;
+        } else {
+            self.address_counter += 1;
+        }
+        self.bytes_remaining -= 1;
+        if (self.bytes_remaining == 0) {
+            if (self.loop) {
+                self.bytes_remaining = self.sample_length;
+            } else {
+                if (self.interrupt_enabled) {
+                    self.dmc_interrupt = true;
+                }
+            }
+        }
+    }
+
+    fn flagsAndRateRegisterWrite(self: *DmcChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                rate_index: u4,
+                _: u2,
+                loop: bool,
+                interrupt_enabled: bool
+            }
+        } = .{.value = value};
+
+        self.timer_reset = rate_table[data.bits.rate_index];
+        self.loop = data.bits.loop;
+        self.interrupt_enabled = data.bits.interrupt_enabled;
+    }
+
+    fn directLoadRegisterWrite(self: *DmcChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        const data: packed union {
+            value: u8,
+            bits: packed struct {
+                output_level: u7,
+                _: u1
+            }
+        } = .{.value = value};
+        self.output_level = data.bits.output_level;
+    }
+
+    fn sampleAddressRegisterWrite(self: *DmcChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        self.sample_address = 0xC000 | (@as(u16, value) << 6);
+    }
+
+    fn sampleLengthRegisterWrite(self: *DmcChannel, bus: *Bus, address: u16, value: u8) void {
+        _ = bus;
+        _ = address;
+        self.sample_length = (@as(u12, value) << 4) | 1;
+    }
+
+    pub fn busCallbacks(self: *DmcChannel) [4]BusCallback {
+        return [_]BusCallback{
+            BusCallback.init(
+                self, 
+                apu_no_read(DmcChannel, "DMC First"), 
+                DmcChannel.flagsAndRateRegisterWrite
+            ), // $400C
+            BusCallback.init(
+                self, 
+                apu_no_read(DmcChannel, "DMC Unused"), 
+                DmcChannel.directLoadRegisterWrite
+            ), // $400D
+            BusCallback.init(
+                self, 
+                apu_no_read(DmcChannel, "DMC Second"), 
+                DmcChannel.sampleAddressRegisterWrite
+            ), // $400E
+            BusCallback.init(
+                self, 
+                apu_no_read(DmcChannel, "DMC Fourth"), 
+                DmcChannel.sampleLengthRegisterWrite
+            ), // $400F
+        };
+    }
+};
+
 pub fn init(self: *Self) !void {
     self.audio_device = c_sdl.SDL_OpenAudioDevice(null, 0, &self.spec_requested, &self.spec_obtained, 0);
 
@@ -623,11 +842,17 @@ pub fn reset(self: *Self) void {
 
 pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
     self.irq = &main_bus.irq;
+    self.dmc_channel.bus = &main_bus.bus;
 }
 
 inline fn updateIrq(self: *Self) void {
-    // TODO: When DMC is added, add dmc irq check ORed
-    self.irq.* = self.frame_counter.frame_interrupt;
+    self.irq.* = self.frame_counter.frame_interrupt or self.dmc_channel.dmc_interrupt;
+}
+
+inline fn stepEnvelopes(self: *Self) void {
+    self.pulse_channel_one.envelope.step();
+    self.pulse_channel_two.envelope.step();
+    self.noise_channel.envelope.step();
 }
 
 inline fn stepLengthCounters(self: *Self) void {
@@ -639,16 +864,32 @@ inline fn stepLengthCounters(self: *Self) void {
 
 fn getMix(self: *Self) u8 {
     // Mixer emulation and tables explained here: https://www.nesdev.org/wiki/APU_Mixer
-    var data: u8 = 0;
-    data += self.pulse_channel_one.output()*2;
-    data += self.pulse_channel_two.output()*2;
-    data += self.triangle_channel.output();
-    data += self.noise_channel.output();
-    return data*2;
+    const pulse_table = comptime blk: {
+        var table: [31]u8 = undefined;
+        table[0] = 0;
+        for (&table, 1..) |*entry, i| {
+            entry.* = @intFromFloat((95.52 / (8128.0 / @as(comptime_float, @floatFromInt(i)) + 100)) * 255);
+        }
+        break :blk table;
+    };
+
+    const tnd_table = comptime blk: {
+        var table: [203]u8 = undefined;
+        table[0] = 0;
+        for (&table, 1..) |*entry, i| {
+            entry.* = @intFromFloat((163.67 / (24329.0 / @as(comptime_float, @floatFromInt(i)) + 100)) * 255);
+        }
+        break :blk table;
+    };
+
+    const pulse_index = self.pulse_channel_one.output() + self.pulse_channel_two.output();
+    const tnd_index = self.triangle_channel.output() * 3 + self.noise_channel.output() * 2 + self.dmc_channel.output();
+    
+    return pulse_table[pulse_index] + tnd_table[tnd_index];
 }
 
 fn sample(self: *Self) void {
-    if (c_sdl.SDL_GetQueuedAudioSize(self.audio_device) < sample_buffer_size * 7) {
+    if (c_sdl.SDL_GetQueuedAudioSize(self.audio_device) < sample_buffer_size * 10) {
         if (self.sample_buffer_index < sample_buffer_size) {
             self.sample_buffer[self.sample_buffer_index] = self.getMix();
             self.sample_buffer_index += 1;
@@ -667,6 +908,7 @@ pub fn step(self: *Self) void {
     }
 
     self.triangle_channel.step();
+    self.dmc_channel.step();
 
     self.sample_timer += 1;
     if (self.sample_timer == @as(u16, @intFromFloat(cycles_per_sample))) {
