@@ -168,6 +168,7 @@ pub const instruction_exception = init: {
     defaults[0x80] = .{.mnemonic = .NOP, .addressing_mode = .immediate}; // Just a two byte nop
     defaults[0xFA] = .{.mnemonic = .NOP, .addressing_mode = .implied};
     defaults[0xEB] = .{.mnemonic = .SBC, .addressing_mode = .immediate};
+    defaults[0xE2] = .{.mnemonic = .NOP, .addressing_mode = .immediate};
 
     break :init defaults;
 };
@@ -194,17 +195,18 @@ pub const cycles = [0x100]u8 {
 
 fn calcInstruction(opcode: u8) Instruction {
     const byte: Byte = @bitCast(opcode);
-    // Unmapped opcodes are treated as NOP
-    if (cycles[opcode] == 0) {
-        return .{};
-    }
 
     // Return NOP if the opcode is an exception or doesn't have a mapped mnemonic or addressing mode
-    return instruction_exception[opcode] orelse 
-        Instruction{
+    return instruction_exception[opcode] orelse {
+        // Unmapped opcodes are treated as NOP
+        if (cycles[opcode] == 0) {
+            return .{};
+        }
+        return Instruction{
             .mnemonic = mnemonic[byte.mnemonic][byte.group] orelse return .{},
             .addressing_mode = addressing_mode[byte.addressing_mode][byte.group] orelse return .{}
         };
+    };
 }
 
 pub const instructions = init: {

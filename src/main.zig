@@ -132,6 +132,9 @@ fn pollEvents() void {
                     c_sdl.SDLK_k => {
                         controller_status.b = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
                     },
+                    c_sdl.SDLK_l => {
+                        emulator.cpu.should_log = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                    },
                     else => {}
                 }
             },
@@ -287,6 +290,9 @@ pub fn main() !void {
         }
         if (gui.show_tile_viewer) {
             gui.showTileViewer();
+        }
+        if (gui.show_audio_settings) {
+            gui.showAudioSettings(&emulator);
         }
             
         render();

@@ -114,6 +114,7 @@ fn flagsAndRateRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) vo
     self.timer_reset = rate_table[data.bits.rate_index];
     self.loop = data.bits.loop;
     self.interrupt_enabled = data.bits.interrupt_enabled;
+    self.dmc_interrupt = data.bits.interrupt_enabled;
 }
 
 fn directLoadRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {

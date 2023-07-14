@@ -104,6 +104,12 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("sdl2");
     exe.linkSystemLibrary("glew32");
     exe.linkLibC();
+    // Only output debug messages in debug build
+    if (exe.optimize == .Debug) {
+        exe.subsystem = .Console;
+    } else {
+        exe.subsystem = .Windows;
+    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

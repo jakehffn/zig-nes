@@ -7,7 +7,7 @@
 
 ![ZigNES exampe](media/example-lawn-mower.png)
 
-Currently, only the NROM mapper is supported and there is no sound.
+Currently, only the NROM mapper is supported.
 
 This can run games like Super Mario Bros., Donkey Kong, and PacMan.
 

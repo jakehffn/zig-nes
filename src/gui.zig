@@ -13,28 +13,37 @@ const Emulator = @import("emulator.zig");
 
 const Self = @This();
 
+// Screen
+screen_texture: c_uint,
+screen_scale: f32 = 2,
+
+// Rom picker
+show_load_rom_modal: bool = false,
+rom_path: [2048]u8 = undefined,
+
+// Emu menu
 not_quit: bool = true,
 paused: bool = false,
 resume_latch: bool = false,
 
-screen_texture: c_uint,
-screen_scale: f32 = 2,
-
-rom_path: [2048]u8 = undefined,
-
-show_load_rom_modal: bool = false,
-
+// Palette viewer
 show_palette_viewer: bool = false,
 palette_viewer_texture: c_uint,
 palette_viewer_scale: f32 = 32,
 
+// Sprite viewer
 show_sprite_viewer: bool = false,
 sprite_viewer_texture: c_uint,
 sprite_viewer_scale: f32 = 4,
 
+// Tile viewer
 show_tile_viewer: bool = false,
 tile_viewer_texture: c_uint,
 tile_viewer_scale: f32 = 1,
+
+// Audio settings
+show_audio_settings: bool = false,
+volume: f32 = 50,
 
 fn colorRgbToImVec4(r: f32, g: f32, b: f32, a: f32) c_imgui.ImVec4 {
     return .{.x = r/255, .y = g/255, .z = b/255, .w = a/255};
@@ -48,6 +57,8 @@ pub fn initStyles() void {
     const main_text_color = colorRgbToImVec4(211, 198, 170, 255);
     const hover_color = colorRgbToImVec4(54, 63, 69, 255);
     const main_dark_color = colorRgbToImVec4(33, 39, 43, 255);
+    const accent_one = colorRgbToImVec4(131, 192, 146, 255);
+    _ = accent_one;
 
     styles.*.Colors[c_imgui.ImGuiCol_Text] = main_text_color;
     styles.*.Colors[c_imgui.ImGuiCol_TitleBg] = main_bg_color;
@@ -72,6 +83,14 @@ pub fn initStyles() void {
     styles.*.Colors[c_imgui.ImGuiCol_Button] = main_bg_color;
     styles.*.Colors[c_imgui.ImGuiCol_ButtonHovered] = hover_color;
     styles.*.Colors[c_imgui.ImGuiCol_ButtonActive] = main_bg_color;
+
+    // ---- Slider stuff ----
+    styles.*.Colors[c_imgui.ImGuiCol_SliderGrab] = main_bg_color;
+    styles.*.Colors[c_imgui.ImGuiCol_SliderGrabActive] = main_bg_color; 
+
+    styles.*.Colors[c_imgui.ImGuiCol_FrameBg] = main_dark_color;
+    styles.*.Colors[c_imgui.ImGuiCol_FrameBgHovered] = main_dark_color;
+    styles.*.Colors[c_imgui.ImGuiCol_FrameBgActive] = hover_color;
 }
 
 fn showMainMenu(self: *Self, emulator: *Emulator) void {
@@ -100,6 +119,10 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
             _ = c_imgui.igMenuItem_BoolPtr("Palette Viewer", "", &self.show_palette_viewer, true);
             _ = c_imgui.igMenuItem_BoolPtr("Sprite Viewer", "", &self.show_sprite_viewer, true);
             _ = c_imgui.igMenuItem_BoolPtr("Tile Viewer", "", &self.show_tile_viewer, false); // TODO: Finish this
+            c_imgui.igEndMenu();
+        }
+        if (c_imgui.igBeginMenu("Settings", true)) {
+            _ = c_imgui.igMenuItem_BoolPtr("Audio", "", &self.show_audio_settings, true);
             c_imgui.igEndMenu();
         }
         c_imgui.igEndMenuBar();
@@ -194,6 +217,28 @@ pub fn showTileViewer(self: *Self) void {
         c_imgui.igText("Test");
         c_imgui.igEnd();
     }
+}
+
+pub fn showAudioSettings(self: *Self, emulator: *Emulator) void {
+    c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_WindowPadding, .{.x = 4, .y = 4});
+    c_imgui.igSetNextWindowSize(.{.x = 130, .y = 0}, 0);
+    const audio_settings = c_imgui.igBegin(
+        "Audio Settings", 
+        &self.show_audio_settings, 
+        c_imgui.ImGuiWindowFlags_NoCollapse
+    );
+    if (audio_settings) {
+        c_imgui.igText("Volume");
+        c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_FramePadding, .{.x = 0, .y = 100});
+        _ = c_imgui.igSliderFloat("##", &self.volume, 0, 100, "%.1f%", 
+            c_imgui.ImGuiSliderFlags_NoRoundToFormat |
+            c_imgui.ImGuiSliderFlags_Vertical
+        );
+        emulator.setVolume(@floatCast(self.volume));
+        c_imgui.igPopStyleVar(1);
+        c_imgui.igEnd();
+    }
+    c_imgui.igPopStyleVar(1);
 }
 
 pub fn showMainWindow(self: *Self, emulator: *Emulator) void {

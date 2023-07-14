@@ -124,3 +124,8 @@ pub fn reset(self: *Self) void {
     self.ppu.reset();
     self.apu.reset();
 }
+
+pub fn setVolume(self: *Self, volume: f16) void {
+    const max_volume: f16 = 60000;
+    self.apu.volume = volume/100.0 * max_volume;
+}

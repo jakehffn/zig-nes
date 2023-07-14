@@ -21,7 +21,7 @@ const sample_buffer_size = 1024;
 
 spec_requested: c_sdl.SDL_AudioSpec = .{
     .freq = 44100, 
-    .format = c_sdl.AUDIO_U8,
+    .format = c_sdl.AUDIO_U16,
     .channels = 1,
     .silence = undefined,
     .samples = sample_buffer_size,
@@ -33,8 +33,10 @@ spec_requested: c_sdl.SDL_AudioSpec = .{
 spec_obtained: c_sdl.SDL_AudioSpec = undefined,
 audio_device: c_sdl.SDL_AudioDeviceID = undefined,
 sample_timer: u16 = 0,
-sample_buffer: [sample_buffer_size]u8 = undefined,
+sample_buffer: [sample_buffer_size]u16 = undefined,
 sample_buffer_index: u16 = 0,
+
+volume: f16 = 30000,
 
 odd_frame: bool = true,
 irq: *bool = undefined,
@@ -75,7 +77,6 @@ status: struct {
         return_flags.bits.I = apu.dmc_channel.dmc_interrupt;
 
         apu.frame_counter.frame_interrupt = false;
-        apu.updateIrq();
 
         return return_flags.value;
     }
@@ -162,7 +163,6 @@ frame_counter: struct {
             if (self.counter == 29828) {
                 if (!self.interrupt_inhibited) {
                     self.frame_interrupt = true;
-                    apu.updateIrq();
                 }
             } else if (self.counter == 29829) {
                 apu.stepEnvelopes();
@@ -171,14 +171,12 @@ frame_counter: struct {
                 apu.stepLengthCounters();
                 if (!self.interrupt_inhibited) {
                     self.frame_interrupt = true;
-                    apu.updateIrq();
                 }
             } else if (self.counter == 29830) {
                 // This is also frame 0, so the frame counter is set immediately to 1
                 self.counter = 1;
                 if (!self.interrupt_inhibited) {
                     self.frame_interrupt = true;
-                    apu.updateIrq();
                 }
             }
         } else {
@@ -206,31 +204,13 @@ frame_counter: struct {
         } = .{.value = value};
         self.interrupt_inhibited = data.bits.I;
         self.mode = data.bits.M;
-        const apu = @fieldParentPtr(Self, "frame_counter", self);
         if (self.interrupt_inhibited) {
             self.frame_interrupt = false;
-            apu.updateIrq();
         }
     }
 
-    fn read(self: *FrameCounter, bus: *Bus, address: u16) u8 {
-        _ = bus;
-        _ = address;
-        var data: packed union {
-            value: u8,
-            bits: packed struct {
-                _: u6,
-                I: bool,
-                M: bool
-            }
-        } = .{.value = 0};
-        data.bits.I = self.frame_interrupt;
-        data.bits.M = self.mode;
-        return data.value;
-    }
-
     pub fn busCallback(self: *FrameCounter) BusCallback {
-        return BusCallback.init(self, FrameCounter.read, FrameCounter.write);
+        return BusCallback.init(self, apu_no_read(FrameCounter, "This should be joystick 2"), FrameCounter.write);
     }
 } = .{},
 
@@ -325,7 +305,9 @@ pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
 }
 
 inline fn updateIrq(self: *Self) void {
-    self.irq.* = self.frame_counter.frame_interrupt or self.dmc_channel.dmc_interrupt;
+    const frame_counter_irq = self.frame_counter.frame_interrupt and !self.frame_counter.interrupt_inhibited;
+    const dmc_irq = self.dmc_channel.dmc_interrupt and self.dmc_channel.interrupt_enabled;
+    self.irq.* = frame_counter_irq or dmc_irq;
 }
 
 inline fn stepSweeps(self: *Self) void {
@@ -346,30 +328,31 @@ inline fn stepLengthCounters(self: *Self) void {
     self.noise_channel.length_counter.step();
 }
 
-fn getMix(self: *Self) u8 {
+fn getMix(self: *Self) u16 {
     // Mixer emulation and tables explained here: https://www.nesdev.org/wiki/APU_Mixer
     const pulse_table = comptime blk: {
-        var table: [31]u8 = undefined;
+        var table: [31]f16 = undefined;
         table[0] = 0;
         for (&table, 1..) |*entry, i| {
-            entry.* = @intFromFloat((95.52 / (8128.0 / @as(comptime_float, @floatFromInt(i)) + 100)) * 255);
+            entry.* = 95.52 / (8128.0 / @as(comptime_float, @floatFromInt(i)) + 100.0);
         }
         break :blk table;
     };
 
     const tnd_table = comptime blk: {
-        var table: [203]u8 = undefined;
+        var table: [203]f16 = undefined;
         table[0] = 0;
         for (&table, 1..) |*entry, i| {
-            entry.* = @intFromFloat((163.67 / (24329.0 / @as(comptime_float, @floatFromInt(i)) + 100)) * 255);
+            entry.* = 163.67 / (24329.0 / @as(comptime_float, @floatFromInt(i)) + 100.0);
         }
         break :blk table;
     };
 
     const pulse_index = self.pulse_channel_one.output() + self.pulse_channel_two.output();
     const tnd_index = self.triangle_channel.output() * 3 + self.noise_channel.output() * 2 + self.dmc_channel.output();
-    
-    return pulse_table[pulse_index] + tnd_table[tnd_index];
+    const result = pulse_table[pulse_index] + tnd_table[tnd_index];
+
+    return @intFromFloat(@min(60000, result * self.volume));
 }
 
 fn sample(self: *Self) void {
@@ -400,8 +383,9 @@ pub fn step(self: *Self) void {
 
         self.sample();
         if (self.sample_buffer_index == sample_buffer_size) {
-            _ = c_sdl.SDL_QueueAudio(self.audio_device, &self.sample_buffer, sample_buffer_size);
+            _ = c_sdl.SDL_QueueAudio(self.audio_device, &self.sample_buffer, sample_buffer_size*2);
             self.sample_buffer_index = 0;
         }    
     }
+    self.updateIrq();
 }

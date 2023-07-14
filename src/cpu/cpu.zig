@@ -206,7 +206,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             const addr_low: u16 = self.bus.readByte(0xFFFA);
             const addr_high: u16 = self.bus.readByte(0xFFFB);
             self.pc = (addr_high << 8) | addr_low;
-            self.total_cycles += 7;
+            self.total_cycles +|= 7;
             self.nmi.* = false;
         }
 
@@ -231,8 +231,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             const addr_low: u16 = self.bus.readByte(0xFFFE);
             const addr_high: u16 = self.bus.readByte(0xFFFF);
             self.pc = (addr_high << 8) | addr_low;
-            self.total_cycles += 7;
-            self.nmi.* = false;
+            self.total_cycles +|= 7;
         }
 
         pub fn step(self: *Self) void {
@@ -245,7 +244,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
                 self.nonMaskableInterrupt();
             }
 
-            if (self.irq.*) {
+            if (self.irq.* and self.p.I == 0) {
                 self.interruptRequest();
             }
 
@@ -276,7 +275,7 @@ pub fn Cpu(comptime log_file_path: ?[]const u8) type {
             self.execute(curr_instruction.mnemonic, operand_address);
             self.total_cycles +%= self.step_cycles;
 
-            self.wait_cycles = self.step_cycles - 1;
+            self.wait_cycles = self.step_cycles -| 1;
         }
 
         inline fn branch(self: *Self, address: u16) void {
