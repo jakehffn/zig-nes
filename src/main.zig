@@ -249,8 +249,9 @@ var current_display_mode: c_sdl.SDL_DisplayMode = undefined;
 var gl_context: c_sdl.SDL_GLContext = undefined;
 
 pub const sample_buffer_size = 2048;
+pub const audio_frequency = 44100;
 var spec_requested: c_sdl.SDL_AudioSpec = .{
-    .freq = 44100, 
+    .freq = audio_frequency, 
     .format = c_sdl.AUDIO_U16,
     .channels = 1,
     .silence = undefined,
@@ -297,11 +298,11 @@ pub fn main() !void {
         pollEvents();
         emulator.setControllerStatus(controller_status);
 
-        startFrame();
         if (!gui.paused) {
             emulator.stepFrame();
         }
 
+        startFrame();
         gui.showMainWindow(&emulator);
         if (gui.show_load_rom_modal) {
             gui.showLoadRomModal(&emulator, allocator);
@@ -320,7 +321,11 @@ pub fn main() !void {
         if (gui.show_audio_settings) {
             gui.showAudioSettings(&emulator);
         }
-            
+        // Filling the audio buffer again during the gui logic prevents the audio buffer from being starved
+        if (!gui.paused) {
+            emulator.stepAudioBuffer();
+        }
+
         render();
     }
 }

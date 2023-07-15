@@ -15,6 +15,8 @@ const Rom = @import("./rom/rom.zig");
 
 const ControllerStatus = @import("./bus/controller.zig").Status;
 
+const sample_buffer_size = @import("./main.zig").sample_buffer_size;
+
 const Self = @This();
 
 const CpuType = Cpu("./log/ZigNES.log");
@@ -81,6 +83,7 @@ pub fn loadRom(self: *Self, rom_path: []const u8, allocator: Allocator) void {
     self.reset();
 }
 
+/// Steps cpu, ppu, and apu until a frame is rendered
 pub fn stepFrame(self: *Self) void {
     if (self.rom == null) {
         return;
@@ -96,6 +99,22 @@ pub fn stepFrame(self: *Self) void {
         self.apu.step();
     }
     self.frame_end = false;
+}
+
+/// Steps cpu, ppu, and apu enough to fill the audio buffer again
+pub fn stepAudioBuffer(self: *Self) void {
+    if (self.rom == null) {
+        return;
+    }
+    for (0..sample_buffer_size) |_| {
+        self.cpu.step();
+        
+        self.ppu.step();
+        self.ppu.step();
+        self.ppu.step();
+
+        self.apu.step();
+    }
 }
 
 pub fn endFrame(self: *Self) void {

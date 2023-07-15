@@ -6,6 +6,7 @@ const c_sdl = @cImport({
 });
 
 const sample_buffer_size = @import("../main.zig").sample_buffer_size;
+const audio_frequency = @import("../main.zig").audio_frequency;
 
 const Bus = @import("../bus/bus.zig");
 const BusCallback = Bus.BusCallback;
@@ -18,9 +19,8 @@ const DmcChannel = @import("./dmc_channel.zig");
 
 const Self = @This();
 
-const cycles_per_sample: f16 = 1789772.72 / 44100.0;
-const sample_period: f32 = 1.0 / 44.10;
-const cpu_period: f32 = 1.0 / 1789.77272;
+const sample_period: f32 = 1000.0 / @as(comptime_float, @floatFromInt(audio_frequency));
+const cpu_period: f32 = 1000.0 / 1789772.72;
 
 audio_callback: *const fn () void,
 
