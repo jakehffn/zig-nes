@@ -5,6 +5,8 @@ const c_sdl = @cImport({
     @cInclude("SDL_opengl.h");
 });
 
+const sample_buffer_size = @import("../main.zig").sample_buffer_size;
+
 const Bus = @import("../bus/bus.zig");
 const BusCallback = Bus.BusCallback;
 const MainBus = @import("../cpu/main_bus.zig");
@@ -17,22 +19,12 @@ const DmcChannel = @import("./dmc_channel.zig");
 const Self = @This();
 
 const cycles_per_sample: f16 = 1789772.72 / 44100.0;
-const sample_buffer_size = 1024;
+const sample_period: f32 = 1.0 / 44.10;
+const cpu_period: f32 = 1.0 / 1789.77272;
 
-spec_requested: c_sdl.SDL_AudioSpec = .{
-    .freq = 44100, 
-    .format = c_sdl.AUDIO_U16,
-    .channels = 1,
-    .silence = undefined,
-    .samples = sample_buffer_size,
-    .size = undefined,
-    .callback = null,
-    .userdata = undefined,
-    .padding = undefined
-},
-spec_obtained: c_sdl.SDL_AudioSpec = undefined,
-audio_device: c_sdl.SDL_AudioDeviceID = undefined,
-sample_timer: u16 = 0,
+audio_callback: *const fn () void,
+
+sample_timer: f32 = 0,
 sample_buffer: [sample_buffer_size]u16 = undefined,
 sample_buffer_index: u16 = 0,
 
@@ -277,20 +269,8 @@ pub const LengthCounter = struct {
     }
 };
 
-pub fn init(self: *Self) !void {
-    self.audio_device = c_sdl.SDL_OpenAudioDevice(null, 0, &self.spec_requested, &self.spec_obtained, 0);
-
-    if (self.audio_device == 0) {
-        std.debug.print("ZigNES: Unable to initialize audio device: {s}\n", .{c_sdl.SDL_GetError()});
-        return error.Unable;
-    }
-    c_sdl.SDL_PauseAudioDevice(self.audio_device, 0);
-}
-
-pub fn deinit(self: *Self) void {
-    if (self.audio_device != 0) {
-        c_sdl.SDL_CloseAudioDevice(self.audio_device);
-    }
+pub fn init(audio_callback: *const fn () void) Self {
+    return .{.audio_callback = audio_callback};
 }
 
 pub fn reset(self: *Self) void {
@@ -356,11 +336,9 @@ fn getMix(self: *Self) u16 {
 }
 
 fn sample(self: *Self) void {
-    if (c_sdl.SDL_GetQueuedAudioSize(self.audio_device) < sample_buffer_size * 10) {
-        if (self.sample_buffer_index < sample_buffer_size) {
-            self.sample_buffer[self.sample_buffer_index] = self.getMix();
-            self.sample_buffer_index += 1;
-        }
+    if (self.sample_buffer_index < sample_buffer_size) {
+        self.sample_buffer[self.sample_buffer_index] = self.getMix();
+        self.sample_buffer_index += 1;
     }
 }
 
@@ -377,15 +355,15 @@ pub fn step(self: *Self) void {
     self.triangle_channel.step();
     self.dmc_channel.step();
 
-    self.sample_timer += 1;
-    if (self.sample_timer == @as(u16, @intFromFloat(cycles_per_sample))) {
-        self.sample_timer = 0;
+    self.sample_timer += cpu_period;
+    if (self.sample_timer >= sample_period) {
+        self.sample_timer -= sample_period;
 
         self.sample();
         if (self.sample_buffer_index == sample_buffer_size) {
-            _ = c_sdl.SDL_QueueAudio(self.audio_device, &self.sample_buffer, sample_buffer_size*2);
+            self.audio_callback();
             self.sample_buffer_index = 0;
-        }    
+        }
     }
     self.updateIrq();
 }

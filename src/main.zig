@@ -23,10 +23,10 @@ const ControllerStatus = @import("./bus/controller.zig").Status;
 const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
 const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
 
-fn initSDL() void {
+fn initSDL() !void {
     if (c_sdl.SDL_Init(c_sdl.SDL_INIT_VIDEO | c_sdl.SDL_INIT_AUDIO) != 0) {
         std.debug.print("ZigNES: Failed to initialize SDL: {s}\n", .{c_sdl.SDL_GetError()});
-        return;
+        return error.Unable;
     } 
     _ = c_sdl.SDL_GL_SetAttribute(c_sdl.SDL_GL_CONTEXT_FLAGS, 0);
     _ = c_sdl.SDL_GL_SetAttribute(c_sdl.SDL_GL_CONTEXT_PROFILE_MASK, c_sdl.SDL_GL_CONTEXT_PROFILE_CORE);
@@ -51,12 +51,23 @@ fn initSDL() void {
 
     gl_context = c_sdl.SDL_GL_CreateContext(window);
     _ = c_sdl.SDL_GL_SetSwapInterval(1);
+
+    audio_device = c_sdl.SDL_OpenAudioDevice(null, 0, &spec_requested, &spec_obtained, 0);
+
+    if (audio_device == 0) {
+        std.debug.print("ZigNES: Unable to initialize audio device: {s}\n", .{c_sdl.SDL_GetError()});
+        return error.Unable;
+    }
+    c_sdl.SDL_PauseAudioDevice(audio_device, 0);
 }
 
 fn deinitSDL() void {
     c_sdl.SDL_Quit();
     c_sdl.SDL_DestroyWindow(window);
     c_sdl.SDL_GL_DeleteContext(gl_context);
+    if (audio_device != 0) {
+        c_sdl.SDL_CloseAudioDevice(audio_device);
+    }
 }
 
 fn initGl() void {
@@ -175,7 +186,8 @@ fn updateSpriteViewerTexture() void {
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
 }
 
-fn updateScreenTexture() void {
+fn renderCallback() void {
+    // Updates the screen texture
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, gui.screen_texture);
     c_glew.glTexImage2D(
         c_glew.GL_TEXTURE_2D, 
@@ -189,22 +201,22 @@ fn updateScreenTexture() void {
         emulator.getScreenPixels()
     );
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
+    // Let the emulator end the frame to start gui render and event handles
+    emulator.frame_end = true;
+}
+
+fn audioCallback() void {
+    const sample_bytes = 2;
+    _ = c_sdl.SDL_QueueAudio(audio_device, emulator.getSampleBuffer(), sample_buffer_size * sample_bytes);
+    while (c_sdl.SDL_GetQueuedAudioSize(audio_device) > sample_buffer_size * 2) {
+        c_sdl.SDL_Delay(1);
+    }
 }
 
 fn startFrame() void {
-    frame_start = c_sdl.SDL_GetPerformanceCounter();
-
     c_imgui.ImGui_ImplOpenGL3_NewFrame();
     c_imgui.ImGui_ImplSDL2_NewFrame();
     c_imgui.igNewFrame();
-}
-
-fn endFrame() void {
-    frame_end = c_sdl.SDL_GetPerformanceCounter();
-    const elapsed_time_ms = @as(f64, @floatFromInt(frame_end - frame_start)) / 
-        @as(f64, @floatFromInt(c_sdl.SDL_GetPerformanceFrequency())) * 1000;
-    const frame_time_ms: f64 = 16.66;
-    c_sdl.SDL_Delay(@as(u32, @intFromFloat(@max(0, frame_time_ms - elapsed_time_ms))));
 }
 
 fn render() void {
@@ -228,12 +240,28 @@ fn render() void {
     c_sdl.SDL_GL_SwapWindow(window);
 }
 
+
 var gpa = GPA(.{}){};
 var emulator: Emulator = .{};
 
 var window: ?*c_sdl.SDL_Window = null;
 var current_display_mode: c_sdl.SDL_DisplayMode = undefined;
 var gl_context: c_sdl.SDL_GLContext = undefined;
+
+pub const sample_buffer_size = 2048;
+var spec_requested: c_sdl.SDL_AudioSpec = .{
+    .freq = 44100, 
+    .format = c_sdl.AUDIO_U16,
+    .channels = 1,
+    .silence = undefined,
+    .samples = sample_buffer_size,
+    .size = undefined,
+    .callback = null,
+    .userdata = undefined,
+    .padding = undefined
+};
+var spec_obtained: c_sdl.SDL_AudioSpec = undefined;
+var audio_device: c_sdl.SDL_AudioDeviceID = undefined;
 
 var gui: Gui = .{
     .screen_texture = undefined,
@@ -249,14 +277,13 @@ var frame_end: u64 = 0;
 pub fn main() !void {
     var allocator = gpa.allocator();
     
-    initSDL();
+    try initSDL();
     defer deinitSDL();
     initGl();
     initImgui();
     defer deinitImgui();
 
-    // Apu uses SDL, so emulator must be initialized after SDL
-    try emulator.init(allocator);
+    try emulator.init(allocator, renderCallback, audioCallback);
 
     gui.screen_texture = createTexture();
     gui.palette_viewer_texture = createTexture();
@@ -273,7 +300,6 @@ pub fn main() !void {
         startFrame();
         if (!gui.paused) {
             emulator.stepFrame();
-            updateScreenTexture();
         }
 
         gui.showMainWindow(&emulator);
@@ -296,6 +322,5 @@ pub fn main() !void {
         }
             
         render();
-        endFrame();
     }
 }

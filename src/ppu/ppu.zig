@@ -68,6 +68,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
 
         bus: *Bus,
         main_bus: *MainBus,
+        render_callback: *const fn () void,
 
         v: u15 = 0, // Current VRAM address
         t: packed union {
@@ -421,9 +422,10 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
             }
         };
 
-        pub fn init(ppu_bus: *PpuBus) !Self {
+        pub fn init(ppu_bus: *PpuBus, render_callback: *const fn () void) !Self {
             var ppu: Self = .{
                 .bus = &ppu_bus.bus,
+                .render_callback = render_callback,
                 .main_bus = undefined,
                 .oam = undefined,
                 .secondary_oam = undefined,
@@ -473,6 +475,7 @@ pub fn Ppu(comptime log_file_path: ?[]const u8) type {
                     if (self.controller_register.flags.V == 1) {
                         self.main_bus.*.nmi = true;
                     }
+                    self.render_callback();
                 }
             }    
             self.dotIncrement();

@@ -30,14 +30,15 @@ apu: Apu = undefined,
 
 rom: ?Rom = null,
 
-pub fn init(self: *Self, allocator: Allocator) !void {
+frame_end: bool = false,
+
+pub fn init(self: *Self, allocator: Allocator, render_callback: *const fn () void, audio_callback: *const fn () void) !void {
     self.ppu_bus = try PpuBus.init(allocator);
     self.ppu_bus.setCallbacks();
 
-    self.apu = .{};
-    try self.apu.init();
+    self.apu = Apu.init(audio_callback);
     self.cpu = try CpuType.init();
-    self.ppu = try PpuType.init(&self.ppu_bus);
+    self.ppu = try PpuType.init(&self.ppu_bus, render_callback);
 
     self.main_bus = try MainBus.init(allocator);
     self.main_bus.setCallbacks(&self.ppu, &self.apu);
@@ -84,8 +85,7 @@ pub fn stepFrame(self: *Self) void {
     if (self.rom == null) {
         return;
     }
-    // This is about the number of cpu cycles per frame
-    for (0..29780) |_| {
+    while (!self.frame_end) {
         self.cpu.step();
         // In the future, it would be nice to implement a PPU stack
         // Explained in this: https://gist.github.com/adamveld12/d0398717145a2c8dedab
@@ -95,6 +95,11 @@ pub fn stepFrame(self: *Self) void {
 
         self.apu.step();
     }
+    self.frame_end = false;
+}
+
+pub fn endFrame(self: *Self) void {
+    self.frame_end = true;
 }
 
 pub fn setControllerStatus(self: *Self, controller_status: ControllerStatus) void {
@@ -128,4 +133,8 @@ pub fn reset(self: *Self) void {
 pub fn setVolume(self: *Self, volume: f16) void {
     const max_volume: f16 = 60000;
     self.apu.volume = volume/100.0 * max_volume;
+}
+
+pub fn getSampleBuffer(self: *Self) *anyopaque {
+    return &self.apu.sample_buffer;
 }
