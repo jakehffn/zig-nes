@@ -186,7 +186,15 @@ fn updateSpriteViewerTexture() void {
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
 }
 
-fn renderCallback() void {
+pub fn renderCallback() void {
+    bufferFrame();
+    // Let the emulator end the frame to start gui render and event handles
+    emulator.frame_ready = true;
+}
+
+pub fn emptyCallback() void {}
+
+inline fn bufferFrame() void {
     // Updates the screen texture
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, gui.screen_texture);
     c_glew.glTexImage2D(
@@ -201,15 +209,14 @@ fn renderCallback() void {
         emulator.getScreenPixels()
     );
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
-    // Let the emulator end the frame to start gui render and event handles
-    emulator.frame_end = true;
 }
 
 fn audioCallback() void {
-    const sample_bytes = 2;
-    _ = c_sdl.SDL_QueueAudio(audio_device, emulator.getSampleBuffer(), sample_buffer_size * sample_bytes);
+    const bytes_per_sample = 2;
+    _ = c_sdl.SDL_QueueAudio(audio_device, emulator.getSampleBuffer(), sample_buffer_size * bytes_per_sample);
     while (c_sdl.SDL_GetQueuedAudioSize(audio_device) > sample_buffer_size * 2) {
         c_sdl.SDL_Delay(1);
+        surplus_time += 1;
     }
 }
 
@@ -272,8 +279,7 @@ var gui: Gui = .{
 };
 var controller_status: ControllerStatus = .{};
 
-var frame_start: u64 = 0;
-var frame_end: u64 = 0;
+var surplus_time: f16 = 0;
 
 pub fn main() !void {
     var allocator = gpa.allocator();
@@ -299,7 +305,14 @@ pub fn main() !void {
         emulator.setControllerStatus(controller_status);
 
         if (!gui.paused) {
-            emulator.stepFrame();
+            if (emulator.apu.emulation_speed <= 1.0) {
+                emulator.stepFrame();
+            } else {
+                // This is less accurate and may cause screen tearing, so it's only used for faster-than-realtime speeds
+                const frame_steps = 29780.5;
+                emulator.stepN(@intFromFloat(frame_steps * emulator.apu.emulation_speed));
+                bufferFrame();
+            }
         }
 
         startFrame();
@@ -318,13 +331,14 @@ pub fn main() !void {
         if (gui.show_tile_viewer) {
             gui.showTileViewer();
         }
-        if (gui.show_audio_settings) {
-            gui.showAudioSettings(&emulator);
+        if (gui.show_performance_monitor) {
+            gui.showPerformanceMonitor(surplus_time);
+            surplus_time = 0;
         }
-        // Filling the audio buffer again during the gui logic prevents the audio buffer from being starved
-        if (!gui.paused) {
-            emulator.stepAudioBuffer();
-        }
+        // // 
+        // if (!gui.paused) {
+        //     emulator.stepN(5000);
+        // }
 
         render();
     }

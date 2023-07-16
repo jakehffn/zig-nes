@@ -32,7 +32,7 @@ apu: Apu = undefined,
 
 rom: ?Rom = null,
 
-frame_end: bool = false,
+frame_ready: bool = false,
 
 pub fn init(self: *Self, allocator: Allocator, render_callback: *const fn () void, audio_callback: *const fn () void) !void {
     self.ppu_bus = try PpuBus.init(allocator);
@@ -88,7 +88,7 @@ pub fn stepFrame(self: *Self) void {
     if (self.rom == null) {
         return;
     }
-    while (!self.frame_end) {
+    while (!self.frame_ready) {
         self.cpu.step();
         // In the future, it would be nice to implement a PPU stack
         // Explained in this: https://gist.github.com/adamveld12/d0398717145a2c8dedab
@@ -98,15 +98,15 @@ pub fn stepFrame(self: *Self) void {
 
         self.apu.step();
     }
-    self.frame_end = false;
+    self.frame_ready = false;
 }
 
-/// Steps cpu, ppu, and apu enough to fill the audio buffer again
-pub fn stepAudioBuffer(self: *Self) void {
+/// Steps cpu, ppu, and apu n cycles
+pub fn stepN(self: *Self, n: usize) void {
     if (self.rom == null) {
         return;
     }
-    for (0..sample_buffer_size) |_| {
+    for (0..n) |_| {
         self.cpu.step();
         
         self.ppu.step();

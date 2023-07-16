@@ -11,6 +11,9 @@ const c_imgui = @cImport({
 
 const Emulator = @import("emulator.zig");
 
+const renderCallback = @import("./main.zig").renderCallback;
+const emptyCallback = @import("./main.zig").emptyCallback;
+
 const Self = @This();
 
 // Screen
@@ -41,8 +44,12 @@ show_tile_viewer: bool = false,
 tile_viewer_texture: c_uint,
 tile_viewer_scale: f32 = 1,
 
+// Performance menu
+show_performance_monitor: bool = false,
+smoothed_surplus_ms: f16 = 0,
+surplus_ms_smoothing: f16 = 0.95, // Amount of old value to use
+
 // Audio settings
-show_audio_settings: bool = false,
 volume: f32 = 50,
 
 fn colorRgbToImVec4(r: f32, g: f32, b: f32, a: f32) c_imgui.ImVec4 {
@@ -96,6 +103,7 @@ pub fn initStyles() void {
 fn showMainMenu(self: *Self, emulator: *Emulator) void {
     if (c_imgui.igBeginMenuBar()) {
         c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_WindowPadding, .{.x = 8, .y = 8});
+        c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_ItemSpacing, .{.x = 6, .y = 6});
         if (c_imgui.igBeginMenu("File", true)) {
             self.show_load_rom_modal = c_imgui.igMenuItem_Bool("Open", "", false, true);
             c_imgui.igEndMenu();
@@ -113,26 +121,56 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
             if (c_imgui.igMenuItem_Bool("Reset", "", false, true)) {
                 emulator.reset();
             }
+            if (c_imgui.igBeginMenu("Speed", true)) {
+                _ = c_imgui.igSliderFloat("##", &emulator.apu.emulation_speed, 0.2, 10, "%.2f%", 
+                    0
+                );
+                if (@max(1, emulator.apu.emulation_speed) - @min(1, emulator.apu.emulation_speed) < 0.25) {
+                    emulator.apu.emulation_speed = 1;
+                }
+
+                if (emulator.apu.emulation_speed <= 1.0) {
+                    // When the emulation is realtime or slower, the screen buffer only needs to be updated when
+                    //  a new emulation frame is ready. Otherwise, screen tearing can occur
+                    emulator.ppu.render_callback = renderCallback;
+                } else {
+                    // When the emulation is faster than realtime, the screen buffer does not need to be updated
+                    //  every time an emulation frame is ready, as the emulator will only ever render ~60 fps
+                    //  This risks screen tearing, but allows for much faster emulation speeds.
+                    emulator.ppu.render_callback = emptyCallback;
+                }
+                c_imgui.igEndMenu();
+            }
             c_imgui.igEndMenu();
         }
         if (c_imgui.igBeginMenu("Debug", true)) {
             _ = c_imgui.igMenuItem_BoolPtr("Palette Viewer", "", &self.show_palette_viewer, true);
             _ = c_imgui.igMenuItem_BoolPtr("Sprite Viewer", "", &self.show_sprite_viewer, true);
             _ = c_imgui.igMenuItem_BoolPtr("Tile Viewer", "", &self.show_tile_viewer, false); // TODO: Finish this
+            _ = c_imgui.igMenuItem_BoolPtr("Performance Monitor", "", &self.show_performance_monitor, true);
             c_imgui.igEndMenu();
         }
         if (c_imgui.igBeginMenu("Settings", true)) {
-            _ = c_imgui.igMenuItem_BoolPtr("Audio", "", &self.show_audio_settings, true);
+            if (c_imgui.igBeginMenu("Volume", true)) {
+                c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_FramePadding, .{.x = 0, .y = 100});
+                c_imgui.igSetNextItemWidth(20);
+                _ = c_imgui.igSliderFloat("##", &self.volume, 0, 100, "", 
+                    c_imgui.ImGuiSliderFlags_NoRoundToFormat |
+                    c_imgui.ImGuiSliderFlags_Vertical
+                );
+                emulator.setVolume(@floatCast(self.volume));
+                c_imgui.igEndMenu();
+                c_imgui.igPopStyleVar(1);
+            }
             c_imgui.igEndMenu();
         }
         c_imgui.igEndMenuBar();
-        c_imgui.igPopStyleVar(1);
+        c_imgui.igPopStyleVar(2);
     }
 }
 
 pub fn showLoadRomModal(self: *Self, emulator: *Emulator, allocator: Allocator) void {
     c_imgui.igOpenPopup_Str("Load ROM", 0);
-    // Sizes the main screen window to fit it's content
     c_imgui.igSetNextWindowSize(.{.x = 600, .y = 0}, 0);
     const load_rom_modal = c_imgui.igBeginPopupModal(
         "Load ROM", 
@@ -162,7 +200,6 @@ pub fn showLoadRomModal(self: *Self, emulator: *Emulator, allocator: Allocator) 
 }
 
 pub fn showPaletteViewer(self: *Self) void {
-    // Fit to content
     c_imgui.igSetNextWindowSize(.{.x = 0, .y = 0}, 0);
     const palette_viewer = c_imgui.igBegin(
         "Palette Viewer", 
@@ -184,7 +221,6 @@ pub fn showPaletteViewer(self: *Self) void {
 }
 
 pub fn showSpriteViewer(self: *Self) void {
-    // Fit to content
     c_imgui.igSetNextWindowSize(.{.x = 0, .y = 0}, 0);
     const sprite_viewer = c_imgui.igBegin(
         "Sprite Viewer", 
@@ -206,7 +242,6 @@ pub fn showSpriteViewer(self: *Self) void {
 }
 
 pub fn showTileViewer(self: *Self) void {
-    // Sizes the main screen window to fit it's content
     c_imgui.igSetNextWindowSize(.{.x = 0, .y = 0}, 0);
     const tile_viewer = c_imgui.igBegin(
         "Tile Viewer", 
@@ -219,23 +254,20 @@ pub fn showTileViewer(self: *Self) void {
     }
 }
 
-pub fn showAudioSettings(self: *Self, emulator: *Emulator) void {
+pub fn showPerformanceMonitor(self: *Self, surplus_time: f16) void {
     c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_WindowPadding, .{.x = 4, .y = 4});
-    c_imgui.igSetNextWindowSize(.{.x = 130, .y = 0}, 0);
-    const audio_settings = c_imgui.igBegin(
-        "Audio Settings", 
-        &self.show_audio_settings, 
+    c_imgui.igSetNextWindowSize(.{.x = 200, .y = 0}, 0);
+    const performance_menu = c_imgui.igBegin(
+        "Performance Monitor", 
+        &self.show_performance_monitor, 
         c_imgui.ImGuiWindowFlags_NoCollapse
     );
-    if (audio_settings) {
-        c_imgui.igText("Volume");
-        c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_FramePadding, .{.x = 0, .y = 100});
-        _ = c_imgui.igSliderFloat("##", &self.volume, 0, 100, "%.1f%", 
-            c_imgui.ImGuiSliderFlags_NoRoundToFormat |
-            c_imgui.ImGuiSliderFlags_Vertical
-        );
-        emulator.setVolume(@floatCast(self.volume));
-        c_imgui.igPopStyleVar(1);
+    if (performance_menu) {
+        self.smoothed_surplus_ms = (self.surplus_ms_smoothing * self.smoothed_surplus_ms) + 
+            ((1 - self.surplus_ms_smoothing) * surplus_time);
+        c_imgui.igText("Surplus time: %.2fms", self.smoothed_surplus_ms);
+        const frame_duration_ms: f16 = 16.6667;
+        c_imgui.igText("%.2f%%", 100.0 * (self.smoothed_surplus_ms / frame_duration_ms));
         c_imgui.igEnd();
     }
     c_imgui.igPopStyleVar(1);

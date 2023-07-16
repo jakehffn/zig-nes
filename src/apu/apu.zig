@@ -23,6 +23,7 @@ const sample_period: f32 = 1000.0 / @as(comptime_float, @floatFromInt(audio_freq
 const cpu_period: f32 = 1000.0 / 1789772.72;
 
 audio_callback: *const fn () void,
+emulation_speed: f32 = 1,
 
 sample_timer: f32 = 0,
 sample_buffer: [sample_buffer_size]u16 = undefined,
@@ -336,10 +337,8 @@ fn getMix(self: *Self) u16 {
 }
 
 fn sample(self: *Self) void {
-    if (self.sample_buffer_index < sample_buffer_size) {
-        self.sample_buffer[self.sample_buffer_index] = self.getMix();
-        self.sample_buffer_index += 1;
-    }
+    self.sample_buffer[self.sample_buffer_index] = self.getMix();
+    self.sample_buffer_index += 1;
 }
 
 pub fn step(self: *Self) void {
@@ -355,7 +354,7 @@ pub fn step(self: *Self) void {
     self.triangle_channel.step();
     self.dmc_channel.step();
 
-    self.sample_timer += cpu_period;
+    self.sample_timer += cpu_period / self.emulation_speed; // Faster emulation speed requires samples spread out more
     if (self.sample_timer >= sample_period) {
         self.sample_timer -= sample_period;
 
