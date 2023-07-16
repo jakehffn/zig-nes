@@ -305,13 +305,16 @@ pub fn main() !void {
         emulator.setControllerStatus(controller_status);
 
         if (!gui.paused) {
-            if (emulator.apu.emulation_speed <= 1.0) {
+            if (emulator.apu.emulation_speed == 1.0) {
                 emulator.stepFrame();
             } else {
-                // This is less accurate and may cause screen tearing, so it's only used for faster-than-realtime speeds
+                // This is less accurate and may cause screen tearing, so it's only used for non-realtime speeds
                 const frame_steps = 29780.5;
                 emulator.stepN(@intFromFloat(frame_steps * emulator.apu.emulation_speed));
-                bufferFrame();
+                // Values less than one will use the callback to buffer a frame when needed
+                if (emulator.apu.emulation_speed > 1.0) {
+                    bufferFrame();
+                }
             }
         }
 

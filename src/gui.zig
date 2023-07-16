@@ -122,13 +122,13 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
                 emulator.reset();
             }
             if (c_imgui.igBeginMenu("Speed", true)) {
-                _ = c_imgui.igSliderFloat("##", &emulator.apu.emulation_speed, 0.2, 10, "%.2f%", 
+                _ = c_imgui.igSliderFloat("##", &emulator.apu.emulation_speed, 0.1, 10, "%.2f%", 
                     0
                 );
-                if (@max(1, emulator.apu.emulation_speed) - @min(1, emulator.apu.emulation_speed) < 0.25) {
-                    emulator.apu.emulation_speed = 1;
+                c_imgui.igSameLine(0, 4);
+                if (c_imgui.igButton("Reset", .{.x = 0, .y = 0})) {
+                    emulator.apu.emulation_speed = 1.0;
                 }
-
                 if (emulator.apu.emulation_speed <= 1.0) {
                     // When the emulation is realtime or slower, the screen buffer only needs to be updated when
                     //  a new emulation frame is ready. Otherwise, screen tearing can occur
@@ -265,7 +265,8 @@ pub fn showPerformanceMonitor(self: *Self, surplus_time: f16) void {
     if (performance_menu) {
         self.smoothed_surplus_ms = (self.surplus_ms_smoothing * self.smoothed_surplus_ms) + 
             ((1 - self.surplus_ms_smoothing) * surplus_time);
-        c_imgui.igText("Surplus time: %.2fms", self.smoothed_surplus_ms);
+        c_imgui.igText("Idle Time (Per frame)");
+        c_imgui.igText("%.2fms", self.smoothed_surplus_ms);
         const frame_duration_ms: f16 = 16.6667;
         c_imgui.igText("%.2f%%", 100.0 * (self.smoothed_surplus_ms / frame_duration_ms));
         c_imgui.igEnd();

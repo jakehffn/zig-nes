@@ -355,7 +355,7 @@ pub fn step(self: *Self) void {
     self.dmc_channel.step();
 
     self.sample_timer += cpu_period / self.emulation_speed; // Faster emulation speed requires samples spread out more
-    if (self.sample_timer >= sample_period) {
+    while (self.sample_timer >= sample_period) {
         self.sample_timer -= sample_period;
 
         self.sample();
