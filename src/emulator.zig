@@ -51,7 +51,7 @@ pub fn deinit(self: *Self) void {
 
 pub fn loadRom(self: *Self, rom_path: []const u8) void {
     self.rom_loader.loadRom(rom_path) catch {
-        std.debug.print("ZigNES: Unable to load ROM file: {s}", .{rom_path});
+        std.debug.print("ZigNES: Unable to load ROM file: {s}\n", .{rom_path});
         return;
     };
     self.main_bus.setRom(self.rom_loader.getRom());
@@ -128,7 +128,7 @@ pub fn reset(self: *Self) void {
         self.ppu.deinit();
         self.ppu = Ppu.init(&self.ppu_bus, render_callback) catch unreachable;
         self.ppu.connectMainBus(&self.main_bus);
-        
+
         self.apu.reset();
     }
 }
