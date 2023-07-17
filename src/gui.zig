@@ -169,7 +169,7 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
     }
 }
 
-pub fn showLoadRomModal(self: *Self, emulator: *Emulator, allocator: Allocator) void {
+pub fn showLoadRomModal(self: *Self, emulator: *Emulator) void {
     c_imgui.igOpenPopup_Str("Load ROM", 0);
     c_imgui.igSetNextWindowSize(.{.x = 600, .y = 0}, 0);
     const load_rom_modal = c_imgui.igBeginPopupModal(
@@ -190,7 +190,7 @@ pub fn showLoadRomModal(self: *Self, emulator: *Emulator, allocator: Allocator) 
         
         if (input_text_submit) {
             std.debug.print("{s}\n", .{&self.rom_path});
-            emulator.loadRom(&self.rom_path, allocator);
+            emulator.loadRom(&self.rom_path);
             self.show_load_rom_modal = false;
             c_imgui.igCloseCurrentPopup();
         }

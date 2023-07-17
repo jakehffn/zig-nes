@@ -16,7 +16,7 @@ pub fn update(self: *Self, ppu: anytype) void {
     for (0..8) |palette_index| {
         // 3 colors and a mirror per palette
         for (0..4) |palette_color_index| {
-            const color_index = ppu.bus.readByte(
+            const color_index = ppu.ppu_bus.read(
                 0x3F00 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
             );
             var pixel = &ppu.palette[color_index % 64];

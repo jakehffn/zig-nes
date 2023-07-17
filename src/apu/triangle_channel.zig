@@ -1,6 +1,3 @@
-const Bus = @import("../bus/bus.zig");
-const BusCallback = Bus.BusCallback;
-
 const Envelope = @import("./apu.zig").Envelope;
 const LengthCounter = @import("./apu.zig").LengthCounter;
 const apu_no_read = @import("./apu.zig").apu_no_read;
@@ -66,9 +63,7 @@ pub fn output(self: *Self) u8 {
     return sequence[self.waveform_counter];
 }
 
-fn linearCounterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn linearCounterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -81,15 +76,11 @@ fn linearCounterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
     self.length_counter.halt = data.bits.c;
 }
 
-fn timerLowRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn timerLowRegisterWrite(self: *Self, value: u8) void {
     self.timer_reset.bytes.low = value;
 }
 
-fn fourthRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn fourthRegisterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -102,29 +93,4 @@ fn fourthRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
         self.length_counter.load(data.bits.l);
     }
     self.linear_counter.reload = true;
-}
-
-pub fn busCallbacks(self: *Self) [4]BusCallback {
-    return [_]BusCallback{
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Triangle Linear Counter"), 
-            Self.linearCounterWrite
-        ), // $4008
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Triangle Unused"), 
-            BusCallback.noWrite(Self, "Triangle Unused", false)
-        ), // $4009
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Triangle Timer Low"), 
-            Self.timerLowRegisterWrite
-        ), // $400A
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Triangle Fourth"), 
-            Self.fourthRegisterWrite
-        ), // $400B
-    };
 }

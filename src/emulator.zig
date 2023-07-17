@@ -2,82 +2,62 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const MainBus = @import("./cpu/main_bus.zig");
-const Cpu = @import("./cpu/cpu.zig").Cpu;
-
+const Cpu = @import("./cpu/cpu.zig");
 const PpuBus = @import("./ppu/ppu_bus.zig");
-const Ppu = @import("./ppu/ppu.zig").Ppu;
-
+const Ppu = @import("./ppu/ppu.zig");
 const Apu = @import("./apu/apu.zig");
 
-const Ram = @import("./bus/ram.zig").Ram;
-const MemoryMirror = @import("./bus/memory_mirror.zig").MemoryMirror;
-const Rom = @import("./rom/rom.zig");
+const RomLoader = @import("./rom/rom_loader.zig");
 
-const ControllerStatus = @import("./bus/controller.zig").Status;
+const Controllers = @import("./controllers.zig");
+const ControllerStatus = Controllers.Status;
 
 const sample_buffer_size = @import("./main.zig").sample_buffer_size;
 
 const Self = @This();
 
-const CpuType = Cpu("./log/ZigNES.log");
-const PpuType = Ppu("./log/ZigNES_PPU.log");
-
-cpu: CpuType = undefined,
+cpu: Cpu = undefined,
 main_bus: MainBus = undefined,
-
-ppu: PpuType = undefined,
+ppu: Ppu = undefined,
 ppu_bus: PpuBus = undefined,
-
 apu: Apu = undefined,
 
-rom: ?Rom = null,
+rom_loader: RomLoader = undefined,
+controllers: Controllers = .{},
 
 frame_ready: bool = false,
 
 pub fn init(self: *Self, allocator: Allocator, render_callback: *const fn () void, audio_callback: *const fn () void) !void {
-    self.ppu_bus = try PpuBus.init(allocator);
-    self.ppu_bus.setCallbacks();
+    self.ppu_bus = PpuBus.init();
 
     self.apu = Apu.init(audio_callback);
-    self.cpu = try CpuType.init();
-    self.ppu = try PpuType.init(&self.ppu_bus, render_callback);
+    self.cpu = try Cpu.init();
+    self.ppu = try Ppu.init(&self.ppu_bus, render_callback);
 
-    self.main_bus = try MainBus.init(allocator);
-    self.main_bus.setCallbacks(&self.ppu, &self.apu);
+    self.main_bus = MainBus.init(&self.ppu, &self.apu, &self.controllers);
 
     self.cpu.connectMainBus(&self.main_bus);
     self.ppu.connectMainBus(&self.main_bus);
     self.apu.connectMainBus(&self.main_bus);
+
+    self.rom_loader = RomLoader.init(allocator);
 }
 
-pub fn deinit(self: *Self, allocator: Allocator) void {
-    self.ppu_bus.deinit(allocator);
+pub fn deinit(self: *Self) void {
     self.ppu.deinit();
-    self.main_bus.deinit(allocator);
     self.cpu.deinit();
-    self.apu.deinit();
-
-    if (self.rom) |*rom| {
-        rom.deinit();
-    }
+    self.rom_loader.deinit();
 }
 
-pub fn loadRom(self: *Self, rom_path: []const u8, allocator: Allocator) void {
-
-    if (self.rom) |*old_rom| {
-        old_rom.deinit();
-    }
-   
-    self.rom = Rom.init(allocator);
-    self.rom.?.load(rom_path) catch {
-        self.rom.?.deinit();
-        self.rom = null;
+pub fn loadRom(self: *Self, rom_path: []const u8) void {
+    self.rom_loader.unloadRom();
+    self.rom_loader.loadRom(rom_path) catch {
         std.debug.print("ZigNES: Unable to load ROM file", .{});
         return;
     };
 
-    self.main_bus.loadRom(&self.rom.?);
-    self.ppu_bus.loadRom(&self.rom.?);
+    self.main_bus.setRom(self.rom_loader.getRom());
+    self.ppu_bus.setRom(self.rom_loader.getRom());
 
     // Reset vectors only available at this point
     self.reset();
@@ -85,7 +65,7 @@ pub fn loadRom(self: *Self, rom_path: []const u8, allocator: Allocator) void {
 
 /// Steps cpu, ppu, and apu until a frame is rendered
 pub fn stepFrame(self: *Self) void {
-    if (self.rom == null) {
+    if (!self.rom_loader.rom_loaded) {
         return;
     }
     while (!self.frame_ready) {
@@ -103,7 +83,7 @@ pub fn stepFrame(self: *Self) void {
 
 /// Steps cpu, ppu, and apu n cycles
 pub fn stepN(self: *Self, n: usize) void {
-    if (self.rom == null) {
+    if (!self.rom_loader.rom_loaded) {
         return;
     }
     for (0..n) |_| {
@@ -121,19 +101,19 @@ pub fn endFrame(self: *Self) void {
     self.frame_end = true;
 }
 
-pub fn setControllerStatus(self: *Self, controller_status: ControllerStatus) void {
-    self.main_bus.controller.status = controller_status;
+pub fn setControllerOneStatus(self: *Self, controller_status: ControllerStatus) void {
+    self.controllers.status_one = controller_status;
 }
 
 pub fn getPaletteViewerPixels(self: *Self) *anyopaque {
-    if (self.rom != null) {
+    if (self.rom_loader.rom_loaded) {
         self.ppu.palette_viewer.update(&self.ppu);
     }
     return &self.ppu.palette_viewer.data;
 }
 
 pub fn getSpriteViewerPixels(self: *Self) *anyopaque {
-    if (self.rom != null) {
+    if (self.rom_loader.rom_loaded) {
         self.ppu.sprite_viewer.update(&self.ppu);
     }
     return &self.ppu.sprite_viewer.data;

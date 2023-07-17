@@ -8,8 +8,6 @@ const c_sdl = @cImport({
 const sample_buffer_size = @import("../main.zig").sample_buffer_size;
 const audio_frequency = @import("../main.zig").audio_frequency;
 
-const Bus = @import("../bus/bus.zig");
-const BusCallback = Bus.BusCallback;
 const MainBus = @import("../cpu/main_bus.zig");
 
 const PulseChannel = @import("./pulse_channel.zig").PulseChannel;
@@ -44,9 +42,7 @@ status: struct {
     const Status = @This();
     // Writing to status enables and disables channels
     // Reading from status reports on various conditions of the actual channels, not the flags
-    fn read(self: *Status, bus: *Bus, address: u16) u8 {
-        _ = bus;
-        _ = address;
+    pub fn read(self: *Status) u8 {
         var apu = @fieldParentPtr(Self, "status", self);
 
         var return_flags: packed union {
@@ -74,9 +70,7 @@ status: struct {
         return return_flags.value;
     }
 
-    fn write(self: *Status, bus: *Bus, address: u16, value: u8) void {
-        _ = bus;
-        _ = address;
+    pub fn write(self: *Status, value: u8) void {
         var apu = @fieldParentPtr(Self, "status", self);
 
         var flags: packed union {
@@ -120,10 +114,6 @@ status: struct {
             }
         }
         apu.dmc_channel.dmc_interrupt = false;
-    }
-
-    pub fn busCallback(self: *Status) BusCallback {
-        return BusCallback.init(self, read, write);
     }
 } = .{},
 
@@ -184,9 +174,7 @@ frame_counter: struct {
         }
     }
 
-    fn write(self: *FrameCounter, bus: *Bus, address: u16, value: u8) void {
-        _ = bus;
-        _ = address;
+    pub fn write(self: *FrameCounter, value: u8) void {
         const data: packed union {
             value: u8,
             bits: packed struct {
@@ -201,15 +189,7 @@ frame_counter: struct {
             self.frame_interrupt = false;
         }
     }
-
-    pub fn busCallback(self: *FrameCounter) BusCallback {
-        return BusCallback.init(self, apu_no_read(FrameCounter, "This should be joystick 2"), FrameCounter.write);
-    }
 } = .{},
-
-pub fn apu_no_read(comptime Outer: type, comptime name: []const u8) fn (ptr: *Outer, bus: *Bus, address: u16) u8 {
-    return BusCallback.noRead(Outer, "Cannot read from APU: " ++ name, false);
-}
 
 pub const Envelope = struct {
     start: bool = false,
@@ -275,14 +255,12 @@ pub fn init(audio_callback: *const fn () void) Self {
 }
 
 pub fn reset(self: *Self) void {
-    var unused_callback = [_]?BusCallback{null};
-    var unused_bus = Bus{.bus_callbacks = &unused_callback};
-    self.status.write(&unused_bus, 0, 0);
+    self.status.write(0);
 }
 
 pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
     self.irq = &main_bus.irq;
-    self.dmc_channel.bus = &main_bus.bus;
+    self.dmc_channel.main_bus = main_bus;
 }
 
 inline fn updateIrq(self: *Self) void {

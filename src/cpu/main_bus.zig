@@ -1,84 +1,108 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Bus = @import("../bus/bus.zig");
-
-const Ppu = @import("../ppu/ppu.zig").Ppu;
+const Ppu = @import("../ppu/ppu.zig");
 const Apu = @import("../apu/apu.zig");
-const Ram = @import("../bus/ram.zig").Ram;
-const Rom = @import("../rom/rom.zig");
-const MemoryMirror = @import("../bus/memory_mirror.zig").MemoryMirror;
-const Controller = @import("../bus/controller.zig");
+const Rom = @import("../rom/rom_loader.zig").Rom;
+const Controllers = @import("../controllers.zig");
 
 const Self = @This();
 
-bus: Bus,
-cpu_ram: Ram(0x800),
-cpu_ram_mirrors: MemoryMirror(0x0000, 0x0800) = .{},
-ppu_registers_mirrors: MemoryMirror(0x2000, 0x2008) = .{},
-rom_mirror: MemoryMirror(0x8000, 0xC000) = .{},
-controller: Controller = .{},
+cpu_ram: [0x800]u8,
+ppu: *Ppu,
+apu: *Apu,
+controllers: *Controllers,
+rom: Rom,
 
 nmi: bool = false,
 irq: bool = false,
 
-pub fn init(allocator: Allocator) !Self {
+pub fn init(ppu: *Ppu, apu: *Apu, controllers: *Controllers) Self {
+    var main_bus: Self = .{
+        .cpu_ram = undefined,
+        .ppu = ppu,
+        .apu = apu,
+        .controllers = controllers,
+        .rom = undefined
+    };
+    @memset(main_bus.cpu_ram[0..], 0);
+    return main_bus;
+}
 
-    return .{
-        .bus = try Bus.init(allocator, 0x10000, null),
-        .cpu_ram = Ram(0x800).init()
+pub fn read(self: *Self, address: u16) u8 {
+    return switch (address) {
+        0...0x1FFF => self.cpu_ram[address % 0x800],
+        0x2000...0x3FFF => switch (address % 8) {
+            2 => self.ppu.status_register.read(),
+            4 => self.ppu.oam_data_register.read(),
+            7 => self.ppu.data_register.read(),
+            else => blk: {
+                std.debug.print("Unmapped main bus read: {X}\n", .{address});
+                break :blk 0;
+            }
+        },
+        0x4015 => self.apu.status.read(),
+        0x4016 => self.controllers.readControllerOne(),
+        0x4017 => self.controllers.readControllerTwo(),
+        0x4020...0xFFFF => self.rom.read(address),
+        else => blk: {
+            std.debug.print("Unmapped main bus read: {X}\n", .{address});
+            break :blk 0;
+        }
     };
 }
 
-pub fn setCallbacks(self: *Self, ppu: anytype, apu: *Apu) void {
+pub fn write(self: *Self, address: u16, value: u8) void {
+    switch (address) {
+        0...0x1FFF => {
+            self.cpu_ram[address % 0x800] = value;
+        },
+        0x2000...0x3FFF => {
+            switch (address % 8) {
+                0 => self.ppu.controller_register.write(value),
+                1 => self.ppu.mask_register.write(value),
+                3 => self.ppu.oam_address_register.write(value),
+                4 => self.ppu.oam_data_register.write(value),
+                5 => self.ppu.scroll_register.write(value),
+                6 => self.ppu.address_register.write(value),
+                7 => self.ppu.data_register.write(value),
+                else => {
+                    std.debug.print("Unmapped main bus write: {X}\n", .{address});
+                }
+            }
+        },
+        0x4000 => self.apu.pulse_channel_one.firstRegisterWrite(value),
+        0x4001 => self.apu.pulse_channel_one.sweepRegisterWrite(value),
+        0x4002 => self.apu.pulse_channel_one.timerLowRegisterWrite(value),
+        0x4003 => self.apu.pulse_channel_one.fourthRegisterWrite(value),
 
-    self.bus.setCallbacks(
-        self.cpu_ram.busCallback(), 
-        0x0000, 0x0800
-    );
-    self.bus.setCallbacks(
-        self.cpu_ram_mirrors.busCallback(), 
-        0x0800, 0x2000
-    );
-    
-    // PPU registers
-    self.bus.setCallback(ppu.controller_register.busCallback(), 0x2000);
-    self.bus.setCallback(ppu.mask_register.busCallback(), 0x2001);
-    self.bus.setCallback(ppu.status_register.busCallback(), 0x2002);
-    self.bus.setCallback(ppu.oam_address_register.busCallback(), 0x2003);
-    self.bus.setCallback(ppu.oam_data_register.busCallback(), 0x2004);
-    self.bus.setCallback(ppu.scroll_register.busCallback(), 0x2005);
-    self.bus.setCallback(ppu.address_register.busCallback(), 0x2006);
-    self.bus.setCallback(ppu.data_register.busCallback(), 0x2007);
-    self.bus.setCallback(ppu.oam_dma_register.busCallback(), 0x4014);
-    self.bus.setCallback(self.controller.busCallback(), 0x4016);
-    
-    self.bus.setCallbacks(
-        self.ppu_registers_mirrors.busCallback(), 
-        0x2008, 0x4000
-    );
+        0x4004 => self.apu.pulse_channel_two.firstRegisterWrite(value),
+        0x4005 => self.apu.pulse_channel_two.sweepRegisterWrite(value),
+        0x4006 => self.apu.pulse_channel_two.timerLowRegisterWrite(value),
+        0x4007 => self.apu.pulse_channel_two.fourthRegisterWrite(value),
 
-    for (apu.pulse_channel_one.busCallbacks(), 0x4000..) |bc, i| {
-        self.bus.setCallback(bc, @truncate(i));
-    }
-    for (apu.pulse_channel_two.busCallbacks(), 0x4004..) |bc, i| {
-        self.bus.setCallback(bc, @truncate(i));
-    }
-    for (apu.triangle_channel.busCallbacks(), 0x4008..) |bc, i| {
-        self.bus.setCallback(bc, @truncate(i));
-    }
-    for (apu.noise_channel.busCallbacks(), 0x400C..) |bc, i| {
-        self.bus.setCallback(bc, @truncate(i));
-    }
-    for (apu.dmc_channel.busCallbacks(), 0x4010..) |bc, i| {
-        self.bus.setCallback(bc, @truncate(i));
-    }
-    self.bus.setCallback(apu.status.busCallback(), 0x4015);
-    self.bus.setCallback(apu.frame_counter.busCallback(), 0x4017);
-}
+        0x4008 => self.apu.triangle_channel.linearCounterWrite(value),
+        0x400A => self.apu.triangle_channel.timerLowRegisterWrite(value),
+        0x400B => self.apu.triangle_channel.fourthRegisterWrite(value),
 
-pub fn deinit(self: *Self, allocator: Allocator) void {
-    self.bus.deinit(allocator);
+        0x400C => self.apu.noise_channel.firstRegisterWrite(value),
+        0x400E => self.apu.noise_channel.secondRegisterWrite(value),
+        0x400F => self.apu.noise_channel.thirdRegisterWrite(value),
+
+        0x4010 => self.apu.dmc_channel.flagsAndRateRegisterWrite(value),
+        0x4011 => self.apu.dmc_channel.directLoadRegisterWrite(value),
+        0x4012 => self.apu.dmc_channel.sampleAddressRegisterWrite(value),
+        0x4013 => self.apu.dmc_channel.sampleLengthRegisterWrite(value),
+
+        0x4014 => self.ppu.oam_dma_register.write(value),
+        0x4015 => self.apu.status.write(value),
+        0x4016 => self.controllers.strobe(value),
+        0x4017 => self.apu.frame_counter.write(value),
+        0x4020...0xFFFF => self.rom.write(address, value),
+        else => {
+            std.debug.print("Unmapped main bus write: {X}\n", .{address});
+        }
+    }
 }
 
 pub fn reset(self: *Self) void {
@@ -86,20 +110,6 @@ pub fn reset(self: *Self) void {
     self.nmi = false;
 }
 
-pub fn loadRom(self: *Self, rom: *Rom) void {
-    if (rom.prg_rom.array.items.len >= 0x8000) {
-        self.bus.setCallbacks(
-            rom.prg_rom.busCallback(), 
-            0x8000, 0x10000
-        );
-    } else {
-        self.bus.setCallbacks(
-            rom.prg_rom.busCallback(),
-            0x8000, 0xC000
-        );
-        self.bus.setCallbacks(
-            self.rom_mirror.busCallback(),
-            0xC000, 0x10000
-        );
-    }
+pub fn setRom(self: *Self, rom: Rom) void {
+    self.rom = rom;
 }

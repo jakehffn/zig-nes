@@ -1,6 +1,3 @@
-const Bus = @import("../bus/bus.zig");
-const BusCallback = Bus.BusCallback;
-
 const Envelope = @import("./apu.zig").Envelope;
 const LengthCounter = @import("./apu.zig").LengthCounter;
 const apu_no_read = @import("./apu.zig").apu_no_read;
@@ -96,9 +93,7 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
             }
         }
 
-        fn firstRegsiterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-            _ = bus;
-            _ = address;
+        pub inline fn firstRegisterWrite(self: *Self, value: u8) void {
             const data: packed union {
                 value: u8,
                 bits: packed struct {
@@ -116,9 +111,7 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
             self.envelope.divider_reset_value = data.bits.divider_reset_value;
         }
 
-        fn sweepRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-            _ = bus;
-            _ = address;
+        pub inline fn sweepRegisterWrite(self: *Self, value: u8) void {
             var data: packed union {
                 value: u8,
                 bits: packed struct {
@@ -136,15 +129,11 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
             self.sweep.reload = true;
         }
 
-        fn timerLowRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-            _ = bus;
-            _ = address;
+        pub inline fn timerLowRegisterWrite(self: *Self, value: u8) void {
             self.timer_reset.bytes.low = value;
         }
 
-        fn fourthRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-            _ = bus;
-            _ = address;
+        pub inline fn fourthRegisterWrite(self: *Self, value: u8) void {
             const data: packed union {
                 value: u8,
                 bits: packed struct {
@@ -158,32 +147,6 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
             }
             self.envelope.start = true;
             self.waveform_counter = 0;
-        }
-
-        pub fn busCallbacks(self: *Self) [4]BusCallback {
-            const channel_name = if (is_pulse_one) "Pulse 1 " else "Pulse 2 ";
-            return [_]BusCallback{
-                BusCallback.init(
-                    self, 
-                    apu_no_read(Self, channel_name ++ "First"), 
-                    Self.firstRegsiterWrite
-                ), // $4000/4004
-                BusCallback.init(
-                    self, 
-                    apu_no_read(Self, channel_name ++ "Sweep"), 
-                    Self.sweepRegisterWrite
-                ), // $4001/4005
-                BusCallback.init(
-                    self, 
-                    apu_no_read(Self, channel_name ++ "Timer Low"), 
-                    Self.timerLowRegisterWrite
-                ), // $4002/4006
-                BusCallback.init(
-                    self, 
-                    apu_no_read(Self, channel_name ++ "Fourth"), 
-                    Self.fourthRegisterWrite
-                ), // $4003/4007
-            };
         }
     }; 
 }

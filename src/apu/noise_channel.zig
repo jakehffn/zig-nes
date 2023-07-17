@@ -1,6 +1,3 @@
-const Bus = @import("../bus/bus.zig");
-const BusCallback = Bus.BusCallback;
-
 const Envelope = @import("./apu.zig").Envelope;
 const LengthCounter = @import("./apu.zig").LengthCounter;
 const apu_no_read = @import("./apu.zig").apu_no_read;
@@ -50,9 +47,7 @@ pub fn output(self: *Self) u8 {
     return self.envelope.output();
 }
 
-fn firstRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn firstRegisterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -69,9 +64,7 @@ fn firstRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
     self.envelope.constant_volume = data.bits.constant_volume;
 }
 
-fn secondRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn secondRegisterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -84,9 +77,7 @@ fn secondRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
     self.mode = data.bits.mode;
 }
 
-fn fourthRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn thirdRegisterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -96,29 +87,4 @@ fn fourthRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
     } = .{.value = value};
     self.length_counter.load(data.bits.length_counter_reload);
     self.envelope.start = true;
-}
-
-pub fn busCallbacks(self: *Self) [4]BusCallback {
-    return [_]BusCallback{
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Noise First"), 
-            Self.firstRegisterWrite
-        ), // $400C
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Noise Unused"), 
-            BusCallback.noWrite(Self, "Noise Unused", false)
-        ), // $400D
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Noise Second"), 
-            Self.secondRegisterWrite
-        ), // $400E
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "Noise Fourth"), 
-            Self.fourthRegisterWrite
-        ), // $400F
-    };
 }

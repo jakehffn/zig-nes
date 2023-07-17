@@ -1,6 +1,4 @@
-const Bus = @import("../bus/bus.zig");
-const BusCallback = Bus.BusCallback;
-
+const MainBus = @import("../cpu/main_bus.zig");
 const Envelope = @import("./apu.zig").Envelope;
 const LengthCounter = @import("./apu.zig").LengthCounter;
 const apu_no_read = @import("./apu.zig").apu_no_read;
@@ -27,7 +25,7 @@ bytes_remaining: u12 = 0,
 interrupt_enabled: bool = false,
 dmc_interrupt: bool = false,
 
-bus: *Bus = undefined,
+main_bus: *MainBus = undefined,
 
 const rate_table = [16]u12{
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106,  84,  72,  54
@@ -80,7 +78,7 @@ pub fn output(self: *Self) u8 {
 }
 
 inline fn fillSampleBuffer(self: *Self) void {
-    self.sample_buffer = self.bus.readByte(self.address_counter);
+    self.sample_buffer = self.main_bus.read(self.address_counter);
     if (self.address_counter == 0xFFFF) {
         self.address_counter = 0x8000;
     } else {
@@ -98,9 +96,7 @@ inline fn fillSampleBuffer(self: *Self) void {
     }
 }
 
-fn flagsAndRateRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn flagsAndRateRegisterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -117,9 +113,7 @@ fn flagsAndRateRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) vo
     self.dmc_interrupt = data.bits.interrupt_enabled;
 }
 
-fn directLoadRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn directLoadRegisterWrite(self: *Self, value: u8) void {
     const data: packed union {
         value: u8,
         bits: packed struct {
@@ -130,39 +124,10 @@ fn directLoadRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void
     self.output_level = data.bits.output_level;
 }
 
-fn sampleAddressRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn sampleAddressRegisterWrite(self: *Self, value: u8) void {
     self.sample_address = 0xC000 | (@as(u16, value) << 6);
 }
 
-fn sampleLengthRegisterWrite(self: *Self, bus: *Bus, address: u16, value: u8) void {
-    _ = bus;
-    _ = address;
+pub inline fn sampleLengthRegisterWrite(self: *Self, value: u8) void {
     self.sample_length = (@as(u12, value) << 4) | 1;
-}
-
-pub fn busCallbacks(self: *Self) [4]BusCallback {
-    return [_]BusCallback{
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "DMC First"), 
-            Self.flagsAndRateRegisterWrite
-        ), // $400C
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "DMC Unused"), 
-            Self.directLoadRegisterWrite
-        ), // $400D
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "DMC Second"), 
-            Self.sampleAddressRegisterWrite
-        ), // $400E
-        BusCallback.init(
-            self, 
-            apu_no_read(Self, "DMC Fourth"), 
-            Self.sampleLengthRegisterWrite
-        ), // $400F
-    };
 }

@@ -28,8 +28,8 @@ pub fn update(self: *Self, ppu: anytype) void {
         const base_offset = (sprite_bank * 0x1000) + (tile * 16);
 
         for (0..8) |y| {
-            var lower = ppu.bus.readByte(base_offset + @as(u16, @truncate(y)));
-            var upper = ppu.bus.readByte(base_offset + @as(u16, @truncate(y + 8)));
+            var lower = ppu.ppu_bus.read(base_offset + @as(u16, @truncate(y)));
+            var upper = ppu.ppu_bus.read(base_offset + @as(u16, @truncate(y + 8)));
 
             for (0..8) |x| {
                 const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
@@ -37,9 +37,9 @@ pub fn update(self: *Self, ppu: anytype) void {
                 lower >>= 1;
                 var color: u8 = undefined;
                 if (palette_color == 0) {
-                    color = ppu.bus.readByte(0x3F00);
+                    color = ppu.ppu_bus.read(0x3F00);
                 } else {
-                    color = ppu.bus.readByte(0x3F10 + @as(u16, palette_id) * 4 + palette_color);
+                    color = ppu.ppu_bus.read(0x3F10 + @as(u16, palette_id) * 4 + palette_color);
                 }
                 var pixel = &ppu.palette[color];
                 const x_offset = if (flip_horizontal) x else (7 - x);

@@ -2,31 +2,43 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
-const Bus = @import("../bus/bus.zig");
-const BusCallback = Bus.BusCallback;
+const Nrom = @import("./nrom.zig");
 
-const MappedArray = struct {
-    const Self = @This();
+const Self = @This();
 
-    array: ArrayList(u8),
+pub const Rom = struct {
+    rom_loader: *Self,
 
-    pub fn init(allocator: Allocator) MappedArray {
-        return .{
-            .array = ArrayList(u8).init(allocator)
-        };
+    init_fn: *const fn (*Self) anyerror!void,
+    deinit_fn: *const fn (*Self) void,
+
+    read_fn: *const fn (*Self, u16) u8,
+    write_fn: *const fn (*Self, u16, u8) void,
+    ppu_read_fn: *const fn (*Self, u16) u8,
+    ppu_write_fn: *const fn (*Self, u16, u8) void,
+
+    pub inline fn init(self: *Rom) !void {
+        try self.init_fn(self.rom_loader);
     }
 
-    pub fn deinit(self: *Self) void {
-        self.array.deinit();
+    pub inline fn deinit(self: *Rom) void {
+        self.deinit_fn(self.rom_loader);
     }
 
-    fn read(self: *Self, bus: *Bus, address: u16) u8 {
-        _ = bus;
-        return self.array.items[address];
+    pub inline fn read(self: *Rom, address: u16) u8 {
+        return self.read_fn(self.rom_loader, address);
     }
-    
-    pub fn busCallback(self: *Self) BusCallback {
-        return BusCallback.init(self, read, BusCallback.noWrite(Self, "Cannot write to ROM", false));
+
+    pub inline fn write(self: *Rom, address: u16, value: u8) void {
+        self.write_fn(self.rom_loader, address, value);
+    }
+
+    pub inline fn ppuRead(self: *Rom, address: u16) u8 {
+        return self.ppu_read_fn(self.rom_loader, address);
+    }
+
+    pub inline fn ppuWrite(self: *Rom, address: u16, value: u8) void {
+        self.ppu_write_fn(self.rom_loader, address, value);
     }
 };
 
@@ -36,6 +48,7 @@ pub const MirroringType = enum {
     vertical
 };
 
+// iNES rom format
 const INesHeader = struct {
     i_nes_format: u2,
     prg_ram_size: u8,
@@ -47,27 +60,30 @@ const INesHeader = struct {
     num_chr_rom_banks: u8, // PRG ROM
 };
 
-// iNES rom format
-const Rom = @This();
+allocator: Allocator,
+header: INesHeader = undefined,
+prg_rom: ArrayList(u8),
+chr_rom: ArrayList(u8),
+ppu_ram: ArrayList(u8),
 
-header: INesHeader,
-prg_rom: MappedArray,
-chr_rom: MappedArray,
+rom_data: *anyopaque = undefined,
+rom_loaded: bool = false,
 
-pub fn init(allocator: Allocator) Rom {
+pub fn init(allocator: Allocator) Self {
     return .{
-        .header = undefined,
-        .prg_rom = MappedArray.init(allocator),
-        .chr_rom = MappedArray.init(allocator),
+        .allocator = allocator,
+        .prg_rom = ArrayList(u8).init(allocator),
+        .chr_rom = ArrayList(u8).init(allocator),
+        .ppu_ram = ArrayList(u8).init(allocator),
     };
 }
 
-pub fn deinit(self: *Rom) void {
+pub fn deinit(self: *Self) void {
     self.prg_rom.deinit();
     self.chr_rom.deinit();
 }
 
-pub fn load(self: *Rom, rom_path: []const u8) !void {
+pub fn loadRom(self: *Self, rom_path: []const u8) !void {
     var file = try std.fs.cwd().openFile(rom_path, .{});
     defer file.close();
 
@@ -115,27 +131,50 @@ pub fn load(self: *Rom, rom_path: []const u8) !void {
     };
 
     if (self.header.mapper_type != 0) {
-        std.debug.print("ZigNES: Unsupported Mapper\n", .{});
+        std.debug.print("Cannot load ROM: Unsupported Mapper\n", .{});
         return error.Unsupported;
     }
 
     const prg_bank_size = 0x4000;
     const prg_bytes = prg_bank_size * @as(u32, self.header.num_prg_rom_banks);
-    try self.prg_rom.array.ensureTotalCapacityPrecise(prg_bytes);
-    self.prg_rom.array.expandToCapacity();
+    try self.prg_rom.ensureTotalCapacityPrecise(prg_bytes);
+    self.prg_rom.expandToCapacity();
 
     const chr_bank_size = 0x2000;
     const chr_bytes = chr_bank_size * @as(u32, self.header.num_chr_rom_banks);
-    try self.chr_rom.array.ensureTotalCapacityPrecise(chr_bytes);
-    self.chr_rom.array.expandToCapacity();
+    try self.chr_rom.ensureTotalCapacityPrecise(chr_bytes);
+    self.chr_rom.expandToCapacity();
 
     const trainer_size = 512;
     if (self.header.has_trainer) {
         try in_stream.skipBytes(trainer_size, .{});
     }
     
-    _ = in_stream.readAll(self.prg_rom.array.items) catch {};
-    _ = in_stream.readAll(self.chr_rom.array.items) catch {};
+    _ = in_stream.readAll(self.prg_rom.items) catch {};
+    _ = in_stream.readAll(self.chr_rom.items) catch {};
 
     std.log.info("{}\n", .{self.header});
+
+    self.rom_loaded = true;
+    var rom = self.getRom();
+    try rom.init();
+}
+
+pub fn unloadRom(self: *Self) void {
+    if (self.rom_loaded) {
+        var rom = self.getRom();
+        rom.deinit();
+        self.prg_rom.shrinkAndFree(0);
+        self.chr_rom.shrinkAndFree(0);
+        self.rom_loaded = false;
+    }
+}
+
+pub fn getRom(self: *Self) Rom {
+    var rom = switch (self.header.mapper_type) {
+        0 => Nrom.rom(),
+        else => unreachable
+    };
+    rom.rom_loader = self;
+    return rom;
 }

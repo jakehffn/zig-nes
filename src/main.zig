@@ -18,7 +18,7 @@ const c_imgui = @cImport({
 
 const Emulator = @import("emulator.zig");
 const Gui = @import("gui.zig");
-const ControllerStatus = @import("./bus/controller.zig").Status;
+const ControllerStatus = @import("./controllers.zig").Status;
 
 const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
 const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
@@ -247,6 +247,10 @@ fn render() void {
     c_sdl.SDL_GL_SwapWindow(window);
 }
 
+pub const sample_buffer_size = 2048;
+pub const audio_frequency = 44100;
+pub const ppu_log_file: ?[]const u8 = "./log/ZigNES_PPU.log";
+pub const cpu_log_file: ?[]const u8 = "./log/ZigNES.log";
 
 var gpa = GPA(.{}){};
 var emulator: Emulator = .{};
@@ -255,8 +259,6 @@ var window: ?*c_sdl.SDL_Window = null;
 var current_display_mode: c_sdl.SDL_DisplayMode = undefined;
 var gl_context: c_sdl.SDL_GLContext = undefined;
 
-pub const sample_buffer_size = 2048;
-pub const audio_frequency = 44100;
 var spec_requested: c_sdl.SDL_AudioSpec = .{
     .freq = audio_frequency, 
     .format = c_sdl.AUDIO_U16,
@@ -291,6 +293,7 @@ pub fn main() !void {
     defer deinitImgui();
 
     try emulator.init(allocator, renderCallback, audioCallback);
+    defer emulator.deinit();
 
     gui.screen_texture = createTexture();
     gui.palette_viewer_texture = createTexture();
@@ -302,7 +305,7 @@ pub fn main() !void {
     // Main loop
     while (gui.not_quit) {
         pollEvents();
-        emulator.setControllerStatus(controller_status);
+        emulator.setControllerOneStatus(controller_status);
 
         if (!gui.paused) {
             if (emulator.apu.emulation_speed == 1.0) {
@@ -321,7 +324,7 @@ pub fn main() !void {
         startFrame();
         gui.showMainWindow(&emulator);
         if (gui.show_load_rom_modal) {
-            gui.showLoadRomModal(&emulator, allocator);
+            gui.showLoadRomModal(&emulator);
         }
         if (gui.show_palette_viewer) {
             updatePaletteViewerTexture();
