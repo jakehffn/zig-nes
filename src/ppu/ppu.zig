@@ -301,8 +301,8 @@ pub fn init(ppu_bus: *PpuBus, render_callback: *const fn () void) !Self {
         }
     };
 
-    @memset(ppu.oam[0..ppu.oam.len], 0);
-    @memset(ppu.secondary_oam[0..ppu.secondary_oam.len], 0);
+    @memset(ppu.oam[0..], 0);
+    @memset(ppu.secondary_oam[0..], 0);
 
     return ppu;
 }
@@ -311,11 +311,6 @@ pub fn deinit(self: *Self) void {
     if (self.log_file) |file| {
         file.close();
     }
-}
-
-pub fn reset(self: *Self) void {
-    @memset(self.screen.data[0..], 0);
-    self.status_register.flags = .{};
 }
 
 pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {

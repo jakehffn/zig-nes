@@ -1,4 +1,5 @@
 const std = @import("std");
+const panic = std.debug.panic;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
@@ -67,7 +68,7 @@ chr_rom: ArrayList(u8),
 ppu_ram: ArrayList(u8),
 
 rom_data: *anyopaque = undefined,
-rom_loaded: bool = false,
+rom: ?Rom = null,
 
 pub fn init(allocator: Allocator) Self {
     return .{
@@ -79,11 +80,22 @@ pub fn init(allocator: Allocator) Self {
 }
 
 pub fn deinit(self: *Self) void {
+    self.unloadRom();
     self.prg_rom.deinit();
     self.chr_rom.deinit();
+    self.ppu_ram.deinit();
 }
 
 pub fn loadRom(self: *Self, rom_path: []const u8) !void {
+    self.unloadRom();
+    try self.readRomFile(rom_path);
+    self.initRom() catch |e| {
+        self.unloadRom();
+        return e;
+    };
+}
+
+fn readRomFile(self: *Self, rom_path: []const u8) !void {
     var file = try std.fs.cwd().openFile(rom_path, .{});
     defer file.close();
 
@@ -130,11 +142,6 @@ pub fn loadRom(self: *Self, rom_path: []const u8) !void {
         .num_chr_rom_banks = header_data.num_chr_rom_banks
     };
 
-    if (self.header.mapper_type != 0) {
-        std.debug.print("Cannot load ROM: Unsupported Mapper\n", .{});
-        return error.Unsupported;
-    }
-
     const prg_bank_size = 0x4000;
     const prg_bytes = prg_bank_size * @as(u32, self.header.num_prg_rom_banks);
     try self.prg_rom.ensureTotalCapacityPrecise(prg_bytes);
@@ -152,29 +159,30 @@ pub fn loadRom(self: *Self, rom_path: []const u8) !void {
     
     _ = in_stream.readAll(self.prg_rom.items) catch {};
     _ = in_stream.readAll(self.chr_rom.items) catch {};
+}
 
-    std.log.info("{}\n", .{self.header});
-
-    self.rom_loaded = true;
-    var rom = self.getRom();
-    try rom.init();
+fn initRom(self: *Self) !void {
+    self.rom = switch (self.header.mapper_type) {
+        0 => Nrom.rom(),
+        else => |mapper_id| {
+            self.rom = null;
+            std.debug.print("RomLoader: Unsupported mapper type: {}\n", .{mapper_id});
+            return error.Unsupported;
+        }
+    };
+    self.rom.?.rom_loader = self;
+    try self.rom.?.init();
 }
 
 pub fn unloadRom(self: *Self) void {
-    if (self.rom_loaded) {
-        var rom = self.getRom();
+    if (self.rom) |*rom| {
         rom.deinit();
-        self.prg_rom.shrinkAndFree(0);
-        self.chr_rom.shrinkAndFree(0);
-        self.rom_loaded = false;
+        self.rom = null;
     }
+    self.prg_rom.shrinkAndFree(0);
+    self.chr_rom.shrinkAndFree(0);
 }
 
 pub fn getRom(self: *Self) Rom {
-    var rom = switch (self.header.mapper_type) {
-        0 => Nrom.rom(),
-        else => unreachable
-    };
-    rom.rom_loader = self;
-    return rom;
+    return self.rom orelse panic("Rom requested when not initialized\n", .{});
 }

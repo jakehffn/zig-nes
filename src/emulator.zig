@@ -50,22 +50,19 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn loadRom(self: *Self, rom_path: []const u8) void {
-    self.rom_loader.unloadRom();
     self.rom_loader.loadRom(rom_path) catch {
-        std.debug.print("ZigNES: Unable to load ROM file", .{});
+        std.debug.print("ZigNES: Unable to load ROM file: {s}", .{rom_path});
         return;
     };
-
     self.main_bus.setRom(self.rom_loader.getRom());
     self.ppu_bus.setRom(self.rom_loader.getRom());
-
     // Reset vectors only available at this point
     self.reset();
 }
 
 /// Steps cpu, ppu, and apu until a frame is rendered
 pub fn stepFrame(self: *Self) void {
-    if (!self.rom_loader.rom_loaded) {
+    if (self.rom_loader.rom == null) {
         return;
     }
     while (!self.frame_ready) {
@@ -83,7 +80,7 @@ pub fn stepFrame(self: *Self) void {
 
 /// Steps cpu, ppu, and apu n cycles
 pub fn stepN(self: *Self, n: usize) void {
-    if (!self.rom_loader.rom_loaded) {
+    if (self.rom_loader.rom == null) {
         return;
     }
     for (0..n) |_| {
@@ -106,14 +103,14 @@ pub fn setControllerOneStatus(self: *Self, controller_status: ControllerStatus) 
 }
 
 pub fn getPaletteViewerPixels(self: *Self) *anyopaque {
-    if (self.rom_loader.rom_loaded) {
+    if (self.rom_loader.rom != null) {
         self.ppu.palette_viewer.update(&self.ppu);
     }
     return &self.ppu.palette_viewer.data;
 }
 
 pub fn getSpriteViewerPixels(self: *Self) *anyopaque {
-    if (self.rom_loader.rom_loaded) {
+    if (self.rom_loader.rom != null) {
         self.ppu.sprite_viewer.update(&self.ppu);
     }
     return &self.ppu.sprite_viewer.data;
@@ -124,9 +121,16 @@ pub fn getScreenPixels(self: *Self) *anyopaque {
 }
 
 pub fn reset(self: *Self) void {
-    self.cpu.reset();
-    self.ppu.reset();
-    self.apu.reset();
+    if (self.rom_loader.rom != null) {
+        self.cpu.reset();
+        // Deinit and reinit ppu to get default values
+        var render_callback = self.ppu.render_callback;
+        self.ppu.deinit();
+        self.ppu = Ppu.init(&self.ppu_bus, render_callback) catch unreachable;
+        self.ppu.connectMainBus(&self.main_bus);
+        
+        self.apu.reset();
+    }
 }
 
 pub fn setVolume(self: *Self, volume: f16) void {
