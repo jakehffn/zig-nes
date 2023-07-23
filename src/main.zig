@@ -22,6 +22,7 @@ const ControllerStatus = @import("./controllers.zig").Status;
 
 const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
 const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
+const NametableViewer = @import("./ppu/debug/nametable_viewer.zig");
 
 fn initSDL() !void {
     if (c_sdl.SDL_Init(c_sdl.SDL_INIT_VIDEO | c_sdl.SDL_INIT_AUDIO) != 0) {
@@ -186,6 +187,22 @@ fn updateSpriteViewerTexture() void {
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
 }
 
+fn updateNametableViewerTexture() void {
+    c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, gui.nametable_viewer_texture);
+    c_glew.glTexImage2D(
+        c_glew.GL_TEXTURE_2D, 
+        0, 
+        c_glew.GL_RGB, 
+        NametableViewer.width, 
+        NametableViewer.height, 
+        0, 
+        c_glew.GL_RGB, 
+        c_glew.GL_UNSIGNED_BYTE, 
+        emulator.getNametableViewerPixels()
+    );
+    c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
+}
+
 pub fn renderCallback() void {
     bufferFrame();
     // Let the emulator end the frame to start gui render and event handles
@@ -277,7 +294,7 @@ var gui: Gui = .{
     .screen_texture = undefined,
     .palette_viewer_texture = undefined,
     .sprite_viewer_texture = undefined,
-    .tile_viewer_texture = undefined
+    .nametable_viewer_texture = undefined
 };
 var controller_status: ControllerStatus = .{};
 
@@ -298,7 +315,7 @@ pub fn main() !void {
     gui.screen_texture = createTexture();
     gui.palette_viewer_texture = createTexture();
     gui.sprite_viewer_texture = createTexture();
-    gui.tile_viewer_texture = createTexture();
+    gui.nametable_viewer_texture = createTexture();
 
     Gui.initStyles();
 
@@ -334,17 +351,14 @@ pub fn main() !void {
             updateSpriteViewerTexture();
             gui.showSpriteViewer();
         }
-        if (gui.show_tile_viewer) {
-            gui.showTileViewer();
+        if (gui.show_nametable_viewer) {
+            updateNametableViewerTexture();
+            gui.showNametableViewer();
         }
         if (gui.show_performance_monitor) {
             gui.showPerformanceMonitor(surplus_time);
             surplus_time = 0;
         }
-        // // 
-        // if (!gui.paused) {
-        //     emulator.stepN(5000);
-        // }
 
         render();
     }

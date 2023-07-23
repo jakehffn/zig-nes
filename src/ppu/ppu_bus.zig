@@ -18,11 +18,12 @@ pub fn init() Self {
 }
 
 pub fn read(self: *Self, address: u16) u8 {
-    return switch(address % 0x4000) {
-        0...0x3EFF => self.rom.ppuRead(address),
-        0x3F00...0x3FFF => self.palette_ram_indices[getPaletteAddress(address)],
+    const wrapped_address = address % 0x4000;
+    return switch(wrapped_address) {
+        0...0x3EFF => self.rom.ppuRead(wrapped_address),
+        0x3F00...0x3FFF => self.palette_ram_indices[getPaletteAddress(wrapped_address)],
         else => blk: {
-            std.debug.print("Unmapped ppu bus read: {X}\n", .{address});
+            std.debug.print("Unmapped ppu bus read: {X}\n", .{wrapped_address});
             break :blk 0;
         }
     };

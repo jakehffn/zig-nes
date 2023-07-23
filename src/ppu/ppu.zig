@@ -7,11 +7,12 @@ const MainBus = @import("../cpu/main_bus.zig");
 
 const PaletteViewer = @import("./debug/palette_viewer.zig");
 const SpriteViewer = @import("./debug/sprite_viewer.zig");
+const NametableViewer = @import("./debug/nametable_viewer.zig");
 
 const SystemPalettes = @import("./system_palettes.zig");
 
 const ppu_log_file = @import("../main.zig").ppu_log_file;
-const logging_enabled = !(ppu_log_file == null or mode == .Debug);
+const logging_enabled = !(ppu_log_file == null or mode != .Debug);
 
 const Self = @This();
 
@@ -52,6 +53,7 @@ screen: Screen,
 
 palette_viewer: PaletteViewer,
 sprite_viewer: SpriteViewer,
+nametable_viewer: NametableViewer,
 log_file: ?std.fs.File,
 
 // In CPU, mapped to:
@@ -290,6 +292,7 @@ pub fn init(ppu_bus: *PpuBus, render_callback: *const fn () void) !Self {
         .screen = Screen.init(),
         .palette_viewer = PaletteViewer.init(),
         .sprite_viewer = SpriteViewer.init(),
+        .nametable_viewer = NametableViewer.init(),
         .log_file = blk: {
             if (!logging_enabled) {
                 break :blk null;
@@ -324,6 +327,7 @@ pub fn step(self: *Self) void {
     } else if (self.scanline < 240) {
         self.renderStep();
     } else {
+        // Scanline 240 is an idle scanline
         // Start of V-blank
         if (self.scanline == 241 and self.dot == 1) {
             self.status_register.flags.V = 1;
@@ -341,36 +345,36 @@ inline fn dotIncrement(self: *Self) void {
     // Every step one pixel should be drawn
     self.dot += 1;
 
-    // Start scanline 0 after 263 scanlines
-    if (self.scanline == 262) {
-        self.scanline = 0;
-    }
-
     // Each scanline is 341 dots
     if (self.dot == 341) {
-        self.dot -= 341;
+        self.dot = 0;
         self.scanline += 1;
+    }
+    // Start scanline 0 after 262 scanlines
+    if (self.scanline == 262) {
+        self.scanline = 0;
     }
 }
 
 inline fn prerenderStep(self: *Self) void {
+    // Dot 0 is an idle cycle
     if (self.dot == 1) {
         self.status_register.flags.O = 0;
         self.status_register.flags.S = 0;
         self.status_register.flags.V = 0;
     }
     // Horizontal position is copied from t to v dot 257 of each scanline
-    if (self.dot == 258 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+    if (self.dot == 257 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
         self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
     }
     // Vertical part of t is copied to v
-    if (self.dot > 280 and self.dot <= 304 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+    if (self.dot >= 280 and self.dot <= 304 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
         self.v = (self.v & ~@as(u15, 0x7BE0)) | (self.t.value & 0x7BE0);
     }
 
     // Dot 339 is skipped on every odd frame
     if (self.dot == 338) {
-        if (self.pre_render_dot_skip and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+        if (self.pre_render_dot_skip and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
             self.dot += 1;
         }
         self.pre_render_dot_skip = !self.pre_render_dot_skip;
@@ -378,7 +382,7 @@ inline fn prerenderStep(self: *Self) void {
 }
 
 fn renderStep(self: *Self) void {
-    
+    // Dot 0 is an idle cycle
     if (self.dot > 0 and self.dot <= 256) {
         var pixel_color_address: u16 = 0;
         var background_is_global = false;
@@ -407,7 +411,7 @@ fn renderStep(self: *Self) void {
 
             pixel_color_address = ((palette_index << 2) | palette_color);
 
-            if (x_offset == 7) {
+            if (self.dot % 8 == 0) {
                 // Horizontal part of v is incremented every 8 dots
                 // From the NesDev wiki
                 if ((self.v & 0x001F) == 31) {
@@ -465,12 +469,11 @@ fn renderStep(self: *Self) void {
                 }
             }
         }
-
-        var pixel_color = self.palette[self.ppu_bus.read(0x3F00 + pixel_color_address)];
+        var pixel_color = self.palette[self.ppu_bus.read(0x3F00 + pixel_color_address) % 64];
         self.screen.setPixel(self.dot - 1, self.scanline, &pixel_color);
     } 
     
-    if (self.dot == 257 and self.mask_register.flags.b == 1) {
+    if (self.dot == 256 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
         // Vertical part of v is incremented after dot 256 of each scanline
         // Also From the NesDev wiki
         if ((self.v & 0x7000) != 0x7000) {
@@ -491,7 +494,7 @@ fn renderStep(self: *Self) void {
     }
 
     // Horizontal position is copied from t to v after dot 257 of each scanline
-    if (self.dot == 258 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+    if (self.dot == 257 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
         self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
     }
 

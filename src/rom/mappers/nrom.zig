@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const RomLoader = @import("./rom_loader.zig");
+const RomLoader = @import("../rom_loader.zig");
 const Rom = RomLoader.Rom;
 const MirroringType = RomLoader.MirroringType;
 
@@ -13,13 +13,15 @@ inline fn getRomData(rom_loader: *RomLoader) *Self {
 }
 
 fn init(rom_loader: *RomLoader) !void {
-    try rom_loader.ppu_ram.ensureTotalCapacityPrecise(0x800);
+    try rom_loader.ppu_ram.ensureTotalCapacityPrecise(0x1000);
     rom_loader.ppu_ram.expandToCapacity();
     rom_loader.rom_data = try rom_loader.allocator.create(Self);
+    const self = getRomData(rom_loader);
+    self.* = .{};
     if (rom_loader.header.num_prg_rom_banks == 1) {
-        getRomData(rom_loader).prg_rom_mirroring = 0x4000;
+        self.prg_rom_mirroring = 0x4000;
     } else {
-        getRomData(rom_loader).prg_rom_mirroring = 0;
+        self.prg_rom_mirroring = 0;
     }
 }
 
@@ -56,14 +58,15 @@ inline fn getInternalAddress(mirroring_type: MirroringType, address: u16) u16 {
     const mirrored_address = (address - nametables_start) % 0x1000;
 
     return switch (mirroring_type) {
-        .horizontal, .four_screen => 
+        .horizontal =>
             switch (mirrored_address) {
                 0...0x3FF => mirrored_address,
                 0x400...0xBFF => mirrored_address - 0x400,
                 0xC00...0xFFF => mirrored_address - 0x800,
-                else => 0
+                else => unreachable
             },
-        .vertical => mirrored_address % 0x800
+        .vertical => mirrored_address % 0x800,
+        .four_screen => mirrored_address
     };
 }
 

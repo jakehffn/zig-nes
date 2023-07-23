@@ -116,6 +116,13 @@ pub fn getSpriteViewerPixels(self: *Self) *anyopaque {
     return &self.ppu.sprite_viewer.data;
 }
 
+pub fn getNametableViewerPixels(self: *Self) *anyopaque {
+    if (self.rom_loader.rom != null) {
+        self.ppu.nametable_viewer.update(&self.ppu);
+    }
+    return &self.ppu.nametable_viewer.data;
+}
+
 pub fn getScreenPixels(self: *Self) *anyopaque {
     return &self.ppu.screen.data;
 }

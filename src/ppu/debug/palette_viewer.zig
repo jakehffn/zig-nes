@@ -7,7 +7,7 @@ data: [width*height*3]u8 = undefined,
 
 pub fn init() Self {
     var palette_viewer: Self = .{};
-    @memset(palette_viewer.data[0..palette_viewer.data.len], 0);
+    @memset(palette_viewer.data[0..], 0);
     return palette_viewer;
 }
 

@@ -7,7 +7,7 @@ data: [width*height*3]u8 = undefined,
 
 pub fn init() Self {
     var sprite_viewer: Self = .{};
-    @memset(sprite_viewer.data[0..sprite_viewer.data.len], 0);
+    @memset(sprite_viewer.data[0..], 0);
     return sprite_viewer;
 }
 

@@ -9,6 +9,10 @@ const c_imgui = @cImport({
     @cInclude("cimgui_impl.h");
 });
 
+const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
+const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
+const NametableViewer = @import("./ppu/debug/nametable_viewer.zig");
+
 const Emulator = @import("emulator.zig");
 
 const renderCallback = @import("./main.zig").renderCallback;
@@ -39,10 +43,10 @@ show_sprite_viewer: bool = false,
 sprite_viewer_texture: c_uint,
 sprite_viewer_scale: f32 = 4,
 
-// Tile viewer
-show_tile_viewer: bool = false,
-tile_viewer_texture: c_uint,
-tile_viewer_scale: f32 = 1,
+// Nametable viewer
+show_nametable_viewer: bool = false,
+nametable_viewer_texture: c_uint,
+nametable_viewer_scale: f32 = 1,
 
 // Performance menu
 show_performance_monitor: bool = false,
@@ -146,7 +150,7 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
         if (c_imgui.igBeginMenu("Debug", true)) {
             _ = c_imgui.igMenuItem_BoolPtr("Palette Viewer", "", &self.show_palette_viewer, true);
             _ = c_imgui.igMenuItem_BoolPtr("Sprite Viewer", "", &self.show_sprite_viewer, true);
-            _ = c_imgui.igMenuItem_BoolPtr("Tile Viewer", "", &self.show_tile_viewer, false); // TODO: Finish this
+            _ = c_imgui.igMenuItem_BoolPtr("Nametable Viewer", "", &self.show_nametable_viewer, true);
             _ = c_imgui.igMenuItem_BoolPtr("Performance Monitor", "", &self.show_performance_monitor, true);
             c_imgui.igEndMenu();
         }
@@ -210,7 +214,10 @@ pub fn showPaletteViewer(self: *Self) void {
     if (palette_viewer) {
         c_imgui.igImage(
             @ptrFromInt(self.palette_viewer_texture),  
-            c_imgui.ImVec2{.x = 4 * self.palette_viewer_scale, .y = 8 * self.palette_viewer_scale}, 
+            c_imgui.ImVec2{
+                .x = PaletteViewer.width * self.palette_viewer_scale, 
+                .y = PaletteViewer.height * self.palette_viewer_scale
+            }, 
             c_imgui.ImVec2{.x = 0, .y = 0}, 
             c_imgui.ImVec2{.x = 1, .y = 1},
             c_imgui.ImVec4{.x = 1, .y = 1, .z = 1, .w = 1},
@@ -231,7 +238,10 @@ pub fn showSpriteViewer(self: *Self) void {
     if (sprite_viewer) {
         c_imgui.igImage(
             @ptrFromInt(self.sprite_viewer_texture),  
-            c_imgui.ImVec2{.x = 64 * self.sprite_viewer_scale, .y = 64 * self.sprite_viewer_scale}, 
+            c_imgui.ImVec2{
+                .x = SpriteViewer.width * self.sprite_viewer_scale, 
+                .y = SpriteViewer.height * self.sprite_viewer_scale
+            }, 
             c_imgui.ImVec2{.x = 0, .y = 0}, 
             c_imgui.ImVec2{.x = 1, .y = 1},
             c_imgui.ImVec4{.x = 1, .y = 1, .z = 1, .w = 1},
@@ -241,15 +251,25 @@ pub fn showSpriteViewer(self: *Self) void {
     }
 }
 
-pub fn showTileViewer(self: *Self) void {
-    c_imgui.igSetNextWindowSize(.{.x = 0, .y = 0}, 0);
-    const tile_viewer = c_imgui.igBegin(
-        "Tile Viewer", 
-        &self.show_tile_viewer, 
+pub fn showNametableViewer(self: *Self) void {
+    c_imgui.igSetNextWindowSize(.{.x = 0, .y = NametableViewer.width * self.nametable_viewer_scale * 2}, 0);
+    const nametable_viewer = c_imgui.igBegin(
+        "Nametable Viewer", 
+        &self.show_nametable_viewer, 
         c_imgui.ImGuiWindowFlags_NoCollapse
     );
-    if (tile_viewer) {
-        c_imgui.igText("Test");
+    if (nametable_viewer) {
+        c_imgui.igImage(
+            @ptrFromInt(self.nametable_viewer_texture),  
+            c_imgui.ImVec2{
+                .x = NametableViewer.width * self.nametable_viewer_scale, 
+                .y = NametableViewer.height * self.nametable_viewer_scale
+            }, 
+            c_imgui.ImVec2{.x = 0, .y = 0}, 
+            c_imgui.ImVec2{.x = 1, .y = 1},
+            c_imgui.ImVec4{.x = 1, .y = 1, .z = 1, .w = 1},
+            c_imgui.ImVec4{.x = 0, .y = 0, .z = 0, .w = 1} 
+        );
         c_imgui.igEnd();
     }
 }
