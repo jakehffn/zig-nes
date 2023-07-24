@@ -411,7 +411,7 @@ fn renderStep(self: *Self) void {
 
             pixel_color_address = ((palette_index << 2) | palette_color);
 
-            if (self.dot % 8 == 0) {
+            if (x_offset == 7) {
                 // Horizontal part of v is incremented every 8 dots
                 // From the NesDev wiki
                 if ((self.v & 0x001F) == 31) {
