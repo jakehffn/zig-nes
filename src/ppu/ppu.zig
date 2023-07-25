@@ -424,6 +424,9 @@ fn renderStep(self: *Self) void {
         }
         // If sprite rendering is active...
         if (self.mask_register.flags.s == 1) {
+            const use_tall_sprites = self.controller_register.flags.H == 1;
+            const sprite_height: u16 = if (use_tall_sprites) 16 else 8;
+
             for (0..self.secondary_oam_size) |i| {
                 const oam_sprite_offset = self.secondary_oam[i] * 4; 
                 const sprite_x = self.oam[oam_sprite_offset + 3] +| 1;
@@ -440,19 +443,27 @@ fn renderStep(self: *Self) void {
                 const flip_horizontal = self.oam[oam_sprite_offset + 2] >> 6 & 1 == 1;
                 const flip_vertical = self.oam[oam_sprite_offset + 2] >> 7 & 1 == 1;
 
-                const tile_pattern_offset = (@as(u16, self.controller_register.flags.S) * 0x1000) + (tile * 16);
-
                 var tile_y = self.scanline -| sprite_y;
                 if (flip_vertical) {
-                    tile_y = 7 - tile_y;
+                    tile_y = sprite_height - 1 - tile_y;
                 }
                 var tile_x: u3 = @truncate(self.dot -| sprite_x);
                 if (flip_horizontal) {
                     tile_x = 7 - tile_x;
                 }
 
-                var lower = self.ppu_bus.read(tile_pattern_offset + @as(u16, tile_y)) >> (7 ^ tile_x);
-                var upper = self.ppu_bus.read(tile_pattern_offset + @as(u16, tile_y) + 8) >> (7 ^ tile_x);
+                var tile_pattern_offset: u16 = undefined;
+
+                if (use_tall_sprites) {
+                    const y_offset = @as(u16, (tile_y & 7) | ((tile_y & 8) << 1));
+                    tile_pattern_offset = (tile >> 1) * 32 + y_offset;
+                    tile_pattern_offset |= (tile & 1) << 12;
+                } else {
+                    tile_pattern_offset = (@as(u16, self.controller_register.flags.S) * 0x1000) + (tile * 16) + @as(u16, tile_y);
+                }
+
+                var lower = self.ppu_bus.read(tile_pattern_offset) >> (7 ^ tile_x);
+                var upper = self.ppu_bus.read(tile_pattern_offset + 8) >> (7 ^ tile_x);
                 const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
                 // Don't draw anything if index 0
                 if (palette_color == 0) {
@@ -503,7 +514,8 @@ fn renderStep(self: *Self) void {
         // Clear the sprite list
         self.secondary_oam_size = 0;
 
-        const sprite_height = 8;
+        const use_tall_sprites = self.controller_register.flags.H == 1;
+        const sprite_height: u16 = if (use_tall_sprites) 16 else 8;
 
         for (0..64) |i| {
             const sprite_y = self.oam[i*4] +| 1;

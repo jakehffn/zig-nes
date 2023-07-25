@@ -3,8 +3,8 @@ const panic = std.debug.panic;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
-const Nrom = @import("./mappers/nrom.zig");
-const Mmc1 = @import("./mappers/mmc1.zig");
+const NROM = @import("./mappers/NROM.zig");
+const SxROM = @import("./mappers/SxROM.zig");
 
 const Self = @This();
 
@@ -165,8 +165,8 @@ fn readRomFile(self: *Self, rom_path: []const u8) !void {
 
 fn initRom(self: *Self) !void {
     self.rom = switch (self.header.mapper_type) {
-        0 => Nrom.rom(),
-        1 => Mmc1.rom(),
+        0 => NROM.rom(),
+        1 => SxROM.rom(),
         else => |mapper_id| {
             self.rom = null;
             std.debug.print("RomLoader: Unsupported mapper type: {}\n", .{mapper_id});
