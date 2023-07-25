@@ -94,10 +94,6 @@ pub fn stepN(self: *Self, n: usize) void {
     }
 }
 
-pub fn endFrame(self: *Self) void {
-    self.frame_end = true;
-}
-
 pub fn setControllerOneStatus(self: *Self, controller_status: ControllerStatus) void {
     self.controllers.status_one = controller_status;
 }

@@ -22,9 +22,15 @@ control_register: packed union {
         chr_rom_two_bank_mode: bool
     }
 } = .{.value = 0},
-chr_bank_zero: u5 = 0,
-chr_bank_one: u5 = 0,
-prg_bank: u5 = 0,
+
+chr_register_zero: u5 = 0,
+chr_register_one: u5 = 0,
+prg_register: u5 = 0,
+
+chr_bank_offset_zero: u32 = 0,
+chr_bank_offset_one: u32 = 0,
+prg_bank_offset_zero: u32 = 0,
+prg_bank_offset_one: u32 = 0,
 
 prg_ram: [0x8000]u8 = undefined,
 chr_ram: [0x2000]u8 = undefined,
@@ -43,13 +49,42 @@ fn init(rom_loader: *RomLoader) !void {
     self.control_register.value |= 0xC;
     self.has_chr_ram = rom_loader.header.num_chr_rom_banks == 0;
     self.num_chr_banks = if (!self.has_chr_ram) rom_loader.header.num_chr_rom_banks * 2 else 2;
-    self.control_register.bits.prg_rom_bank_mode = 3;
     @memset(self.prg_ram[0..], 0); 
     @memset(self.chr_ram[0..], 0); 
+
+    self.control_register.bits.prg_rom_bank_mode = 3;
+    self.updateChrBankOffsets();
+    self.updatePrgBankOffsets(rom_loader);
 }
 
 fn deinit(rom_loader: *RomLoader) void {
     rom_loader.allocator.destroy(getRomData(rom_loader));
+}
+
+inline fn updateChrBankOffsets(self: *Self) void {
+    if (self.control_register.bits.chr_rom_two_bank_mode) {
+        self.chr_bank_offset_zero = @as(u32, self.chr_register_zero) * chr_bank_size;
+    } else {
+        self.chr_bank_offset_zero = @as(u32, self.chr_register_zero & 0x1E) * chr_bank_size;
+    }
+    if (self.control_register.bits.chr_rom_two_bank_mode) {
+        self.chr_bank_offset_one = @as(u32, self.chr_register_one) * chr_bank_size;
+    } else {
+        self.chr_bank_offset_one = @as(u32, self.chr_register_zero | 1) * chr_bank_size;
+    }
+}
+
+inline fn updatePrgBankOffsets(self: *Self, rom_loader: *RomLoader) void {
+    self.prg_bank_offset_zero =  switch (self.control_register.bits.prg_rom_bank_mode) {
+        0, 1 => @as(u32, self.prg_register & 0x1E) * prg_bank_size,
+        2 => 0,
+        3 => @as(u32, self.prg_register) * prg_bank_size
+    };
+    self.prg_bank_offset_one = switch (self.control_register.bits.prg_rom_bank_mode) {
+        0, 1 => @as(u32, self.prg_register | 1) * prg_bank_size,
+        2 => @as(u32, self.prg_register) * prg_bank_size,
+        3 => @as(u32, rom_loader.header.num_prg_rom_banks -| 1) * prg_bank_size
+    };
 }
 
 fn read(rom_loader: *RomLoader, address: u16) u8 {
@@ -64,22 +99,12 @@ fn read(rom_loader: *RomLoader, address: u16) u8 {
         0x8000...0xBFFF => {
             const bank_addressing_start = 0x8000;
             const rom_address: u32 = address - bank_addressing_start;
-            const banking_offset = switch (self.control_register.bits.prg_rom_bank_mode) {
-                0, 1 => @as(u32, self.prg_bank & 0x1E) * prg_bank_size,
-                2 => 0,
-                3 => @as(u32, self.prg_bank) * prg_bank_size
-            };
-            return rom_loader.prg_rom.items[rom_address + banking_offset];
+            return rom_loader.prg_rom.items[rom_address + self.prg_bank_offset_zero];
         },
         0xC000...0xFFFF => {
             const bank_addressing_start = 0xC000;
             const rom_address: u32 = address - bank_addressing_start;
-            const banking_offset = switch (self.control_register.bits.prg_rom_bank_mode) {
-                0, 1 => @as(u32, self.prg_bank | 1) * prg_bank_size,
-                2 => @as(u32, self.prg_bank) * prg_bank_size,
-                3 => @as(u32, rom_loader.header.num_prg_rom_banks -| 1) * prg_bank_size
-            };
-            return rom_loader.prg_rom.items[rom_address + banking_offset];
+            return rom_loader.prg_rom.items[rom_address + self.prg_bank_offset_one];
         },
         else => unreachable
     }
@@ -87,10 +112,28 @@ fn read(rom_loader: *RomLoader, address: u16) u8 {
 
 fn write(rom_loader: *RomLoader, address: u16, value: u8) void {
     const self = getRomData(rom_loader);
+    switch (address) {
+        0x4000...0x5FFF => {},
+        0x6000...0x7FFF => {
+            const prg_ram_start = 0x6000;
+            const ram_address = address - prg_ram_start;
+            self.prg_ram[ram_address] = value;
+        },
+        0x8000...0xFFFF => {
+            writeToSerial(rom_loader, address, value);
+        },
+        else => unreachable
+    }
+}
+
+inline fn writeToSerial(rom_loader: *RomLoader, address: u16, value: u8) void {
+    const self = getRomData(rom_loader);
     if (value & 0x80 == 0x80) {
         self.shift_register = 0;
         self.shift_counter = 5;
         self.control_register.value |= 0xC;
+        self.updateChrBankOffsets();
+        self.updatePrgBankOffsets(rom_loader);
         return;
     }
     self.shift_register >>= 1;
@@ -99,23 +142,22 @@ fn write(rom_loader: *RomLoader, address: u16, value: u8) void {
 
     if (self.shift_counter == 0) {
         switch (address) {
-            0x4000...0x5FFF => {},
-            0x6000...0x7FFF => {
-                const prg_ram_start = 0x6000;
-                const ram_address = address - prg_ram_start;
-                self.prg_ram[ram_address] = value;
-            },
             0x8000...0x9FFF => {
                 self.control_register.value = self.shift_register;
+                self.updateChrBankOffsets();
+                self.updatePrgBankOffsets(rom_loader);
             },
             0xA000...0xBFFF => {
-                self.chr_bank_zero = self.shift_register & @as(u5, @truncate(self.num_chr_banks -| 1));
+                self.chr_register_zero = self.shift_register & @as(u5, @truncate(self.num_chr_banks -| 1));
+                self.updateChrBankOffsets();
             },
             0xC000...0xDFFF => {
-                self.chr_bank_one = self.shift_register & @as(u5, @truncate(self.num_chr_banks -| 1));
+                self.chr_register_one = self.shift_register & @as(u5, @truncate(self.num_chr_banks -| 1));
+                self.updateChrBankOffsets();
             },
             0xE000...0xFFFF => {
-                self.prg_bank = self.shift_register & @as(u5, @truncate(rom_loader.header.num_prg_rom_banks -| 1));
+                self.prg_register = self.shift_register & @as(u5, @truncate(rom_loader.header.num_prg_rom_banks -| 1));
+                self.updatePrgBankOffsets(rom_loader);
                 // TODO: Implement bit 4 logic
             },
             else => unreachable
@@ -150,33 +192,19 @@ fn ppuRead(rom_loader: *RomLoader, address: u16) u8 {
     const self = getRomData(rom_loader);
     switch(address) {
         0...0x0FFF => {
-            // Get total offset into chr memory
-            var banking_offset: u32 = undefined;
-            if (self.control_register.bits.chr_rom_two_bank_mode) {
-                banking_offset = @as(u32, self.chr_bank_zero) * chr_bank_size;
-            } else {
-                banking_offset = @as(u32, self.chr_bank_zero & 0x1E) * chr_bank_size;
-            }
             if (self.has_chr_ram) {
-                return self.chr_ram[address + banking_offset];
+                return self.chr_ram[address + self.chr_bank_offset_zero];
             } else {
-                return rom_loader.chr_rom.items[address + banking_offset];
+                return rom_loader.chr_rom.items[address + self.chr_bank_offset_zero];
             }
         },
         0x1000...0x1FFF => {
             const rom_offset = 0x1000;
             const rom_address: u32 = address - rom_offset;
-            // Get total offset into chr memory
-            var banking_offset: u32 = undefined;
-            if (self.control_register.bits.chr_rom_two_bank_mode) {
-                banking_offset = @as(u32, self.chr_bank_one) * chr_bank_size;
-            } else {
-                banking_offset = @as(u32, self.chr_bank_zero | 1) * chr_bank_size;
-            }
             if (self.has_chr_ram) {
-                return self.chr_ram[rom_address + banking_offset];
+                return self.chr_ram[rom_address + self.chr_bank_offset_one];
             } else {
-                return rom_loader.chr_rom.items[rom_address + banking_offset];
+                return rom_loader.chr_rom.items[rom_address + self.chr_bank_offset_one];
             }
         },
         0x2000...0x3FFF => {
@@ -191,33 +219,19 @@ fn ppuWrite(rom_loader: *RomLoader, address: u16, value: u8) void {
     const self = getRomData(rom_loader);
     switch(address) {
         0...0x0FFF => {
-            // Get total offset into chr memory
-            var banking_offset: u32 = undefined;
-            if (self.control_register.bits.chr_rom_two_bank_mode) {
-                banking_offset = @as(u32, self.chr_bank_zero) * chr_bank_size;
-            } else {
-                banking_offset = @as(u32, self.chr_bank_zero & 0x1E) * chr_bank_size;
-            }
             if (self.has_chr_ram) {
-                self.chr_ram[address + banking_offset] = value;
+                self.chr_ram[address + self.chr_bank_offset_zero] = value;
             } else {
-                rom_loader.chr_rom.items[address + banking_offset] = value;
+                rom_loader.chr_rom.items[address + self.chr_bank_offset_zero] = value;
             }
         },
         0x1000...0x1FFF => {
             const rom_offset = 0x1000;
             const rom_address: u32 = address - rom_offset;
-            // Get total offset into chr memory
-            var banking_offset: u32 = undefined;
-            if (self.control_register.bits.chr_rom_two_bank_mode) {
-                banking_offset = @as(u32, self.chr_bank_one) * chr_bank_size;
-            } else {
-                banking_offset = @as(u32, self.chr_bank_zero | 1) * chr_bank_size;
-            }
             if (self.has_chr_ram) {
-                self.chr_ram[rom_address + banking_offset] = value;
+                self.chr_ram[rom_address + self.chr_bank_offset_one] = value;
             } else {
-                rom_loader.chr_rom.items[rom_address + banking_offset] = value;
+                rom_loader.chr_rom.items[rom_address + self.chr_bank_offset_one] = value;
             }
         },
         0x2000...0x3FFF => {
