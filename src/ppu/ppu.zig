@@ -48,6 +48,16 @@ oam: [256]u8,
 secondary_oam: [8]u8, // Will just hold indices into oam
 secondary_oam_size: u8 = 0,
 
+tile_low_shift: u16 = 0,
+tile_low_shift_latch: u8 = 0,
+tile_high_shift: u16 = 0,
+tile_high_shift_latch: u8 = 0,
+palette_offset: u16 = 0,
+previous_palette_offset: u16 = 0,
+palette_offset_latch: u16 = 0,
+tile_address: u16 = 0,
+tile_address_latch: u16 = 0,
+
 palette: *const [64][3]u8,
 screen: Screen,
 
@@ -363,18 +373,19 @@ inline fn prerenderStep(self: *Self) void {
         self.status_register.flags.S = 0;
         self.status_register.flags.V = 0;
     }
-    // Horizontal position is copied from t to v dot 257 of each scanline
-    if (self.dot == 257 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
-        self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
+    if (self.isRenderingEnabled()) {
+        // Horizontal position is copied from t to v dot 257 of each scanline
+        if (self.dot == 257) {
+            self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
+        }
+        // Vertical part of t is copied to v
+        if (self.dot >= 280 and self.dot <= 304) {
+            self.v = (self.v & ~@as(u15, 0x7BE0)) | (self.t.value & 0x7BE0);
+        }
     }
-    // Vertical part of t is copied to v
-    if (self.dot >= 280 and self.dot <= 304 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
-        self.v = (self.v & ~@as(u15, 0x7BE0)) | (self.t.value & 0x7BE0);
-    }
-
     // Dot 339 is skipped on every odd frame
     if (self.dot == 338) {
-        if (self.pre_render_dot_skip and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
+        if (self.pre_render_dot_skip and self.isRenderingEnabled()) {
             self.dot += 1;
         }
         self.pre_render_dot_skip = !self.pre_render_dot_skip;
@@ -382,135 +393,43 @@ inline fn prerenderStep(self: *Self) void {
 }
 
 fn renderStep(self: *Self) void {
+    // Most of this render step logic should be very similar to Mesen
     // Dot 0 is an idle cycle
     if (self.dot > 0 and self.dot <= 256) {
-        var pixel_color_address: u16 = 0;
-        var background_is_global = false;
-
-        // If background rendering is active...
-        if (self.mask_register.flags.b == 1) {
-
-            const x_offset: u3 = @truncate((self.dot + self.x - 1) % 8);
-
-            // Get tile from nametable
-            const tile: u16 = self.ppu_bus.read(0x2000 | (self.v & 0x0FFF));
-            // Get pattern from chr_rom
-            const address: u16 = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
-            const palette_color: u16 = ((self.ppu_bus.read(address) >> (7 ^ x_offset)) & 1) | 
-                                        (((self.ppu_bus.read(address + 8) >> (7 ^ x_offset)) & 1) << 1);
-            
-            var palette_index: u16 = 0;
-            if (palette_color == 0) {
-                background_is_global = true;
-            } else {
-                // Coarse x and coarse y are used to find the attribute byte
-                // Address formula from NesDev wiki
-                const attribute_byte = self.ppu_bus.read(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
-                palette_index = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
+        self.updateTileRegisters();
+        if (self.isRenderingEnabled()) {
+            if (self.dot % 8 == 0) {
+                self.incrementScrollHorizontal();
             }
-
-            pixel_color_address = ((palette_index << 2) | palette_color);
-
-            if (x_offset == 7) {
-                // Horizontal part of v is incremented every 8 dots
-                // From the NesDev wiki
-                if ((self.v & 0x001F) == 31) {
-                    self.v &= ~@as(u15, 0x001F);
-                    self.v ^= 0x0400;
-                } else {
-                    self.v += 1;
-                }
+            if (self.dot == 256) {
+                self.incrementScrollVertical();
             }
         }
-        // If sprite rendering is active...
-        if (self.mask_register.flags.s == 1) {
-            const use_tall_sprites = self.controller_register.flags.H == 1;
-            const sprite_height: u16 = if (use_tall_sprites) 16 else 8;
-
-            for (0..self.secondary_oam_size) |i| {
-                const oam_sprite_offset = self.secondary_oam[i] * 4; 
-                const sprite_x = self.oam[oam_sprite_offset + 3] +| 1;
-
-                const distance = self.dot -% @as(u16, sprite_x);
-                if (distance >= 8) {
-                    continue;
-                }
-
-                const sprite_y = self.oam[oam_sprite_offset] +% 1;
-                const tile: u16 = self.oam[oam_sprite_offset + 1];
-                const palette_index: u2 = @truncate(self.oam[oam_sprite_offset + 2]);
-                const priority = self.oam[oam_sprite_offset + 2] >> 5 & 1 == 0;
-                const flip_horizontal = self.oam[oam_sprite_offset + 2] >> 6 & 1 == 1;
-                const flip_vertical = self.oam[oam_sprite_offset + 2] >> 7 & 1 == 1;
-
-                var tile_y = self.scanline -| sprite_y;
-                if (flip_vertical) {
-                    tile_y = sprite_height - 1 - tile_y;
-                }
-                var tile_x: u3 = @truncate(self.dot -| sprite_x);
-                if (flip_horizontal) {
-                    tile_x = 7 - tile_x;
-                }
-
-                var tile_pattern_offset: u16 = undefined;
-
-                if (use_tall_sprites) {
-                    const y_offset = @as(u16, (tile_y & 7) | ((tile_y & 8) << 1));
-                    tile_pattern_offset = (tile >> 1) * 32 + y_offset;
-                    tile_pattern_offset |= (tile & 1) << 12;
-                } else {
-                    tile_pattern_offset = (@as(u16, self.controller_register.flags.S) * 0x1000) + (tile * 16) + @as(u16, tile_y);
-                }
-
-                var lower = self.ppu_bus.read(tile_pattern_offset) >> (7 ^ tile_x);
-                var upper = self.ppu_bus.read(tile_pattern_offset + 8) >> (7 ^ tile_x);
-                const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
-                // Don't draw anything if index 0
-                if (palette_color == 0) {
-                    continue;
-                }
-                // Set sprite zero hit if background is not the global background color
-                if (oam_sprite_offset == 0 and !background_is_global and self.status_register.flags.S == 0) {
-                    self.status_register.flags.S = 1;
-                }
-                // Sprite's are only shown if the background is the global background color 
-                //  or if the sprite has priority
-                if (priority or background_is_global) {
-                    pixel_color_address = (0x10 + @as(u16, palette_index) * 4) + @as(u16, palette_color);
-                }
+        self.renderPixel();
+        self.incrementShiftRegisters();
+    } else if (self.dot >= 257 and self.dot <= 320) {
+        if (self.isRenderingEnabled()) {
+            if ((self.dot -% 261) % 8 == 0) {
+                self.updateTileRegisters();
+            }
+            // Horizontal position is copied from t to v dot 257 of each scanline
+            if (self.dot == 257) {
+                self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
             }
         }
-        var pixel_color = self.palette[self.ppu_bus.read(0x3F00 + pixel_color_address) % 64];
-        self.screen.setPixel(self.dot - 1, self.scanline, &pixel_color);
-    } 
-    
-    if (self.dot == 256 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
-        // Vertical part of v is incremented after dot 256 of each scanline
-        // Also From the NesDev wiki
-        if ((self.v & 0x7000) != 0x7000) {
-            self.v += 0x1000;
+    } else if (self.dot >= 321 and self.dot <= 336) {
+        if (self.dot == 321) {
+            self.updateTileRegisters();
+        } else if ((self.dot == 328 or self.dot == 336) and self.isRenderingEnabled()) {
+            self.updateTileRegisters();
+            self.tile_low_shift <<= 8;
+            self.tile_high_shift <<= 8;
+            self.incrementScrollHorizontal();
         } else {
-            self.v &= ~@as(u15, 0x7000);
-            var y = (self.v & 0x03E0) >> 5;
-            if (y == 29) {
-                y = 0;
-                self.v ^= 0x0800;
-            } else if (y == 31) {
-                y = 0;
-            } else {
-                y += 1;
-            }
-            self.v = (self.v & ~@as(u15, 0x03E0)) | (y << 5);
+            self.updateTileRegisters();
         }
-    }
-
-    // Horizontal position is copied from t to v after dot 257 of each scanline
-    if (self.dot == 257 and (self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1)) {
-        self.v = (self.v & ~@as(u15, 0x41F)) | (self.t.value & 0x41F);
-    }
-
-    // At the end of each visible scanline, add the next scanline sprites to secondary oam
-    if (self.dot == 340) {
+    } else if (self.dot == 340) {
+        // At the end of each visible scanline, add the next scanline sprites to secondary oam
         // Clear the sprite list
         self.secondary_oam_size = 0;
 
@@ -534,4 +453,160 @@ fn renderStep(self: *Self) void {
             }
         }
     }
+}
+
+inline fn incrementScrollHorizontal(self: *Self) void {
+    // Horizontal part of v is incremented every 8 dots
+    // From the NesDev wiki
+    if ((self.v & 0x001F) == 31) {
+        self.v &= ~@as(u15, 0x001F);
+        self.v ^= 0x0400;
+    } else {
+        self.v += 1;
+    }
+}
+
+inline fn incrementScrollVertical(self: *Self) void {
+    // Vertical part of v is incremented after dot 256 of each scanline
+    // Also From the NesDev wiki
+    if ((self.v & 0x7000) != 0x7000) {
+        self.v += 0x1000;
+    } else {
+        self.v &= ~@as(u15, 0x7000);
+        var y = (self.v & 0x03E0) >> 5;
+        if (y == 29) {
+            y = 0;
+            self.v ^= 0x0800;
+        } else if (y == 31) {
+            y = 0;
+        } else {
+            y += 1;
+        }
+        self.v = (self.v & ~@as(u15, 0x03E0)) | (y << 5);
+    }
+}
+
+inline fn isRenderingEnabled(self: *Self) bool {
+    return self.mask_register.flags.b == 1 or self.mask_register.flags.s == 1;
+}
+
+fn updateTileRegisters(self: *Self) void {
+    if (self.isRenderingEnabled()) {
+        // Each read takes 2 cycles
+        switch (self.dot % 8) {
+            1 => {
+                self.tile_low_shift |= self.tile_low_shift_latch;
+                self.tile_high_shift |= self.tile_high_shift_latch;
+
+                self.previous_palette_offset = self.palette_offset;
+                self.palette_offset = self.palette_offset_latch;
+                self.tile_address = self.tile_address_latch;
+
+                // Get tile from nametable
+                const tile: u16 = self.ppu_bus.read(0x2000 | (self.v & 0x0FFF));
+                // Get pattern from chr_rom
+                self.tile_address_latch = (@as(u16, self.controller_register.flags.B) * 0x1000) | (((self.v >> 12) & 0x7) + (tile * 16));
+            },
+            3 => {
+                // Coarse x and coarse y are used to find the attribute byte
+                // Address formula from NesDev wiki
+                const attribute_byte = self.ppu_bus.read(0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07));
+                const palette_index = (attribute_byte >> @truncate(((self.v >> 4) & 4) | (self.v & 2))) & 0b11;
+                self.palette_offset_latch = palette_index << 2;
+            },
+            5 => {
+                self.tile_low_shift_latch = self.ppu_bus.read(self.tile_address_latch);
+            },
+            7 => {
+                self.tile_high_shift_latch = self.ppu_bus.read(self.tile_address_latch + 8);
+            },
+            else => {}
+        }
+    }
+}
+
+inline fn incrementShiftRegisters(self: *Self) void {
+    self.tile_low_shift <<= 1;
+    self.tile_high_shift <<= 1;
+}
+
+fn renderPixel(self: *Self) void {
+    var pixel_color_address: u16 = 0;
+    var background_is_global = false;
+
+    // If background rendering is active...
+    if (self.mask_register.flags.b == 1) {
+        const x_offset: u3 = self.x;
+        const palette_color: u16 = (((self.tile_low_shift << x_offset) & 0x8000) >> 15)  | 
+                                   (((self.tile_high_shift << x_offset) & 0x8000) >> 14);
+        
+        var palette_offset: u16 = 0;
+        if (palette_color == 0) {
+            background_is_global = true;
+        } else {
+            palette_offset = if (((self.dot - 1) % 8) + x_offset < 8) self.previous_palette_offset else self.palette_offset;
+        }
+
+        pixel_color_address = (palette_offset | palette_color);
+    }
+    // If sprite rendering is active...
+    if (self.mask_register.flags.s == 1) {
+        const use_tall_sprites = self.controller_register.flags.H == 1;
+        const sprite_height: u16 = if (use_tall_sprites) 16 else 8;
+
+        for (0..self.secondary_oam_size) |i| {
+            const oam_sprite_offset = self.secondary_oam[i] * 4; 
+            const sprite_x = self.oam[oam_sprite_offset + 3] +| 1;
+
+            const distance = self.dot -% @as(u16, sprite_x);
+            if (distance >= 8) {
+                continue;
+            }
+
+            const sprite_y = self.oam[oam_sprite_offset] +% 1;
+            const tile: u16 = self.oam[oam_sprite_offset + 1];
+            const palette_index: u2 = @truncate(self.oam[oam_sprite_offset + 2]);
+            const priority = self.oam[oam_sprite_offset + 2] >> 5 & 1 == 0;
+            const flip_horizontal = self.oam[oam_sprite_offset + 2] >> 6 & 1 == 1;
+            const flip_vertical = self.oam[oam_sprite_offset + 2] >> 7 & 1 == 1;
+
+            var tile_y = self.scanline -| sprite_y;
+            if (flip_vertical) {
+                tile_y = sprite_height - 1 - tile_y;
+            }
+            var tile_x: u3 = @truncate(self.dot -| sprite_x);
+            if (flip_horizontal) {
+                tile_x = 7 - tile_x;
+            }
+
+            var tile_pattern_offset: u16 = undefined;
+
+            if (use_tall_sprites) {
+                const y_offset = @as(u16, (tile_y & 7) | ((tile_y & 8) << 1));
+                tile_pattern_offset = (tile >> 1) * 32 + y_offset;
+                tile_pattern_offset |= (tile & 1) << 12;
+            } else {
+                tile_pattern_offset = (@as(u16, self.controller_register.flags.S) * 0x1000) + (tile * 16) + @as(u16, tile_y);
+            }
+
+            var lower = self.ppu_bus.read(tile_pattern_offset) >> (7 ^ tile_x);
+            var upper = self.ppu_bus.read(tile_pattern_offset + 8) >> (7 ^ tile_x);
+            const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
+            // Don't draw anything if index 0
+            if (palette_color == 0) {
+                continue;
+            }
+            // Set sprite zero hit if background is not the global background color
+            if (oam_sprite_offset == 0 and !background_is_global and self.status_register.flags.S == 0) {
+                self.status_register.flags.S = 1;
+            }
+            // Sprite's are only shown if the background is the global background color 
+            //  or if the sprite has priority
+            if (priority or background_is_global) {
+                pixel_color_address = (0x10 + @as(u16, palette_index) * 4) + @as(u16, palette_color);
+            }
+        }
+    }
+    var pixel_color = self.palette[self.ppu_bus.read(0x3F00 + pixel_color_address) % 64];
+    self.screen.setPixel(self.dot - 1, self.scanline, &pixel_color);
 }
