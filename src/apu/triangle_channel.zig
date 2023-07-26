@@ -56,9 +56,8 @@ pub fn step(self: *Self) void {
 }
 
 pub fn output(self: *Self) u8 {
-    if (!self.channel_enabled or self.length_counter.counter == 0 or 
-        self.linear_counter.counter == 0 or self.timer_reset.value < 2) {
-            return 0;
+    if (!self.channel_enabled or self.timer_reset.value < 2) {
+        return 0;
     }
     return sequence[self.waveform_counter];
 }
