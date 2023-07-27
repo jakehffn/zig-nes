@@ -320,10 +320,10 @@ fn sample(self: *Self) void {
 }
 
 pub fn step(self: *Self) void {
+    self.frame_counter.step();
+    
     self.odd_frame = !self.odd_frame;
     if (self.odd_frame) {
-        self.frame_counter.step();
-
         self.pulse_channel_one.step();
         self.pulse_channel_two.step();
         self.noise_channel.step();
