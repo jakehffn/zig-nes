@@ -2,10 +2,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 const allocator = std.testing.allocator;
 
-const Cpu = @import("./cpu.zig").Cpu;
-const Bus = @import("../bus//bus.zig");
-const BusCallback = Bus.BusCallback;
-const Ram = @import("../bus/ram.zig").Ram;
+const Cpu = @import("./cpu.zig");
+const MainBus = @import("./main_bus.zig");
 
 const OpCodeError = error {
     UnexpectedBehaviour
@@ -33,24 +31,20 @@ const TestEnv = struct {
         const Cycle = struct {u16, u8, []const u8};
     };
 
-    bus: Bus,
-    cpu: Cpu(null),
+    bus: MainBus,
+    cpu: Cpu,
     unused: bool = false,
 
-    fn init(ram: *Ram(0x10000)) !TestEnv {
+    fn init() !TestEnv {
         return .{
-            .bus = try Bus.init(allocator, 0x10000, ram.busCallback()),
-            .cpu = undefined,
+            .bus = try MainBus.testInit(allocator),
+            .cpu = try Cpu.init(),
         };
-    }
-
-    fn initCpu(self: *Self) void {
-        self.cpu = Cpu(null).initWithTestBus(&self.bus, &self.unused, &self.unused) catch unreachable;
     }
 
     fn deinit(self: *Self) void {
         self.cpu.deinit();
-        self.bus.deinit(allocator);
+        self.bus.testDeinit();
     }
 
     fn setState(env: *TestEnv, state: CpuState) void {
@@ -62,7 +56,7 @@ const TestEnv = struct {
         env.cpu.p = @bitCast(state.p);
 
         for (state.ram orelse unreachable) |data| {
-            env.bus.writeByte(data[0], data[1]);
+            env.bus.write(data[0], data[1]);
         }
         env.cpu.wait_cycles = 0;
     }
@@ -77,7 +71,7 @@ const TestEnv = struct {
         is_correct = is_correct and @as(u8, @bitCast(env.cpu.p)) == state.p;
 
         for (state.ram orelse unreachable) |data| {
-            is_correct = is_correct and env.bus.readByte(data[0]) == data[1];
+            is_correct = is_correct and env.bus.read(data[0]) == data[1];
         }
 
         return is_correct;
@@ -97,7 +91,7 @@ const TestEnv = struct {
             },
         });
         for (expected.ram orelse unreachable) |data| {
-            const value = env.bus.readByte(data[0]);
+            const value = env.bus.read(data[0]);
             std.debug.print("\t${X:0>4}: 0x{X:0>2}\tEx: 0x{X:0>2}\n", .{data[0], value, data[1]});
         }
     }
@@ -112,10 +106,9 @@ const TestEnv = struct {
         defer tests_json.deinit();
 
         // Prepare the test environment
-        var test_memory = Ram(0x10000){};
-        var test_env = try TestEnv.init(&test_memory);
+        var test_env = try TestEnv.init();
+        test_env.cpu.connectMainBus(&test_env.bus);
         defer test_env.deinit();
-        test_env.initCpu();
 
         var num_not_passed: u16 = 0;
 

@@ -8,7 +8,11 @@ const Controllers = @import("../controllers.zig");
 
 const Self = @This();
 
+allocator: Allocator,
+
 cpu_ram: [0x800]u8,
+test_ram: []u8,
+
 ppu: *Ppu,
 apu: *Apu,
 controllers: *Controllers,
@@ -17,16 +21,43 @@ rom: Rom,
 nmi: bool = false,
 irq: bool = false,
 
+read_fn: *const fn (self: *Self, address: u16) u8,
+write_fn: *const fn (self: *Self, address: u16, value: u8) void,
+
 pub fn init(ppu: *Ppu, apu: *Apu, controllers: *Controllers) Self {
     var main_bus: Self = .{
+        .allocator = undefined,
         .cpu_ram = undefined,
+        .test_ram = undefined,
         .ppu = ppu,
         .apu = apu,
         .controllers = controllers,
-        .rom = undefined
+        .rom = undefined,
+        .read_fn = normalRead,
+        .write_fn = normalWrite
     };
     @memset(main_bus.cpu_ram[0..], 0);
     return main_bus;
+}
+
+pub fn testInit(allocator: Allocator) !Self {
+    var main_bus: Self = .{
+        .allocator = allocator,
+        .cpu_ram = undefined,
+        .test_ram = try allocator.alloc(u8, 0x10000),
+        .ppu = undefined,
+        .apu = undefined,
+        .controllers = undefined,
+        .rom = undefined,
+        .read_fn = testRead,
+        .write_fn = testWrite
+    };
+    @memset(main_bus.test_ram[0..], 0);
+    return main_bus;
+}
+
+pub fn testDeinit(self: *Self) void {
+    self.allocator.free(self.test_ram);
 }
 
 pub fn reset(self: *Self) void {
@@ -34,7 +65,15 @@ pub fn reset(self: *Self) void {
     self.nmi = false;
 }
 
-pub fn read(self: *Self, address: u16) u8 {
+pub inline fn read(self: *Self, address: u16) u8 {
+    return self.read_fn(self, address);
+}
+
+pub inline fn write(self: *Self, address: u16, value: u8) void {
+    return self.write_fn(self, address, value);
+}
+
+fn normalRead(self: *Self, address: u16) u8 {
     return switch (address) {
         0...0x1FFF => self.cpu_ram[address % 0x800],
         0x2000...0x3FFF => switch (address % 8) {
@@ -57,7 +96,7 @@ pub fn read(self: *Self, address: u16) u8 {
     };
 }
 
-pub fn write(self: *Self, address: u16, value: u8) void {
+fn normalWrite(self: *Self, address: u16, value: u8) void {
     switch (address) {
         0...0x1FFF => {
             self.cpu_ram[address % 0x800] = value;
@@ -108,6 +147,14 @@ pub fn write(self: *Self, address: u16, value: u8) void {
             std.debug.print("Unmapped main bus write: {X}\n", .{address});
         }
     }
+}
+
+fn testRead(self: *Self, address: u16) u8 {
+    return self.test_ram[address];
+}
+
+fn testWrite(self: *Self, address: u16, value: u8) void {
+    self.test_ram[address] = value;
 }
 
 pub fn setRom(self: *Self, rom: Rom) void {
