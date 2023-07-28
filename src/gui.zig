@@ -50,20 +50,21 @@ smoothed_surplus_ms: f16 = 0,
 // Settings that are loaded and saved
 saved_settings: struct {
     // Screen
-    screen_scale: f32 = 1,
+    screen_scale: c_int = 1,
     // Rom loader
     recent_roms: [][]const u8 = &.{},
     // Palette loader
     recent_palettes: [][]const u8 = &.{},
+    use_default_palette: bool = false,
     // Palette viewer
     show_palette_viewer: bool = false,
-    palette_viewer_scale: f32 = 32,
+    palette_viewer_scale: c_int = 32,
     // Sprite viewer
     show_sprite_viewer: bool = false,
-    sprite_viewer_scale: f32 = 4,
+    sprite_viewer_scale: c_int = 4,
     // Nametable Viewer
     show_nametable_viewer: bool = false,
-    nametable_viewer_scale: f32 = 1,
+    nametable_viewer_scale: c_int = 1,
     // Performance menu
     show_performance_monitor: bool = false,
     surplus_ms_smoothing: f16 = 0.95, // Amount of old value to use
@@ -137,37 +138,61 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
     if (c_imgui.igBeginMenuBar()) {
         c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_WindowPadding, .{.x = 8, .y = 8});
         c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_ItemSpacing, .{.x = 6, .y = 6});
-        if (c_imgui.igBeginMenu("File", true)) {
-            self.show_load_rom_modal = c_imgui.igMenuItem_Bool("Load Rom", "", false, true);
-            if (c_imgui.igBeginMenu("Recent...##rom", self.saved_settings.recent_roms.len != 0)) {
-                for (self.saved_settings.recent_roms) |recent_rom| {
-                    const name_start = @max(
-                        std.mem.lastIndexOf(u8, recent_rom, "\\") orelse 0,
-                        std.mem.lastIndexOf(u8, recent_rom, "/") orelse 0
-                    ) + 1;
-                    if (c_imgui.igMenuItem_Bool(recent_rom[name_start..].ptr, "", false, true)) {
-                        _ = emulator.loadRom(recent_rom);
-                    }
+
+        self.showFileMenu(emulator);
+        self.showEmuMenu(emulator);
+        self.showDebugMenu();
+        self.showSettingsMenu(emulator);
+        c_imgui.igEndMenuBar();
+        c_imgui.igPopStyleVar(2);
+    }
+}
+
+fn showFileMenu(self: *Self, emulator: *Emulator) void {
+    if (c_imgui.igBeginMenu("File", true)) {
+        self.show_load_rom_modal = c_imgui.igMenuItem_Bool("Load Rom", "", false, true);
+        if (c_imgui.igBeginMenu("Recent...##rom", self.saved_settings.recent_roms.len != 0)) {
+            for (self.saved_settings.recent_roms) |recent_rom| {
+                const name_start = @max(
+                    std.mem.lastIndexOf(u8, recent_rom, "\\") orelse 0,
+                    std.mem.lastIndexOf(u8, recent_rom, "/") orelse 0
+                ) + 1;
+                if (c_imgui.igMenuItem_Bool(recent_rom[name_start..].ptr, "", false, true)) {
+                    _ = emulator.loadRom(recent_rom);
+                    movePathToFront(&self.saved_settings.recent_roms, recent_rom);
+                    break;
                 }
-                c_imgui.igEndMenu();
-            }
-            c_imgui.igSeparator();
-            self.show_load_palette_modal = c_imgui.igMenuItem_Bool("Load Palette", "", false, true);
-            if (c_imgui.igBeginMenu("Recent...##palette", self.saved_settings.recent_palettes.len != 0)) {
-                for (self.saved_settings.recent_palettes) |recent_palette| {
-                    const name_start = @max(
-                        std.mem.lastIndexOf(u8, recent_palette, "\\") orelse 0,
-                        std.mem.lastIndexOf(u8, recent_palette, "/") orelse 0
-                    ) + 1;
-                    if (c_imgui.igMenuItem_Bool(recent_palette[name_start..].ptr, "", false, true)) {
-                        emulator.loadPalette(recent_palette);
-                    }
-                }
-                c_imgui.igEndMenu();
             }
             c_imgui.igEndMenu();
         }
-        if (c_imgui.igBeginMenu("Emu", true)) {
+        c_imgui.igSeparator();
+        self.show_load_palette_modal = c_imgui.igMenuItem_Bool("Load Palette", "", false, true);
+        if (c_imgui.igBeginMenu("Recent...##palette", self.saved_settings.recent_palettes.len != 0)) {
+            for (self.saved_settings.recent_palettes) |recent_palette| {
+                const name_start = @max(
+                    std.mem.lastIndexOf(u8, recent_palette, "\\") orelse 0,
+                    std.mem.lastIndexOf(u8, recent_palette, "/") orelse 0
+                ) + 1;
+                if (c_imgui.igMenuItem_Bool(recent_palette[name_start..].ptr, "", false, true)) {
+                    emulator.loadPalette(recent_palette);
+                    movePathToFront(&self.saved_settings.recent_palettes, recent_palette);
+                    self.saved_settings.use_default_palette = false;
+                    break;
+                }
+            }
+            c_imgui.igEndMenu();
+        }
+        if (c_imgui.igMenuItem_Bool("Default", "", false, true)) {
+            self.saved_settings.use_default_palette = true;
+            emulator.ppu.palette.useDefaultPalette();
+        }
+
+        c_imgui.igEndMenu();
+    }
+}
+
+fn showEmuMenu(self: *Self, emulator: *Emulator) void {
+    if (c_imgui.igBeginMenu("Emu", true)) {
             if (!self.paused) {
                 _ = c_imgui.igMenuItem_BoolPtr("Pause", "", &self.paused, true);
             } else {
@@ -202,29 +227,37 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
             }
             c_imgui.igEndMenu();
         }
-        if (c_imgui.igBeginMenu("Debug", true)) {
-            _ = c_imgui.igMenuItem_BoolPtr("Palette Viewer", "", &self.saved_settings.show_palette_viewer, true);
-            _ = c_imgui.igMenuItem_BoolPtr("Sprite Viewer", "", &self.saved_settings.show_sprite_viewer, true);
-            _ = c_imgui.igMenuItem_BoolPtr("Nametable Viewer", "", &self.saved_settings.show_nametable_viewer, true);
-            _ = c_imgui.igMenuItem_BoolPtr("Performance Monitor", "", &self.saved_settings.show_performance_monitor, true);
+}
+
+fn showDebugMenu(self: *Self) void {
+    if (c_imgui.igBeginMenu("Debug", true)) {
+        _ = c_imgui.igMenuItem_BoolPtr("Palette Viewer", "", &self.saved_settings.show_palette_viewer, true);
+        _ = c_imgui.igMenuItem_BoolPtr("Sprite Viewer", "", &self.saved_settings.show_sprite_viewer, true);
+        _ = c_imgui.igMenuItem_BoolPtr("Nametable Viewer", "", &self.saved_settings.show_nametable_viewer, true);
+        _ = c_imgui.igMenuItem_BoolPtr("Performance Monitor", "", &self.saved_settings.show_performance_monitor, true);
+        c_imgui.igEndMenu();
+    }
+}
+
+fn showSettingsMenu(self: *Self, emulator: *Emulator) void {
+    if (c_imgui.igBeginMenu("Settings", true)) {
+        if (c_imgui.igBeginMenu("Volume", true)) {
+            c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_FramePadding, .{.x = 0, .y = 100});
+            c_imgui.igSetNextItemWidth(20);
+            _ = c_imgui.igSliderFloat("##", &self.saved_settings.volume, 0, 100, "", 
+                c_imgui.ImGuiSliderFlags_NoRoundToFormat |
+                c_imgui.ImGuiSliderFlags_Vertical
+            );
+            emulator.setVolume(@floatCast(self.saved_settings.volume));
+            c_imgui.igEndMenu();
+            c_imgui.igPopStyleVar(1);
+        }
+        if (c_imgui.igBeginMenu("Screen Scale", true)) {
+            c_imgui.igSetNextItemWidth(80);
+            _ = c_imgui.igInputInt("##", &self.saved_settings.screen_scale, 1, 0, 0);
             c_imgui.igEndMenu();
         }
-        if (c_imgui.igBeginMenu("Settings", true)) {
-            if (c_imgui.igBeginMenu("Volume", true)) {
-                c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_FramePadding, .{.x = 0, .y = 100});
-                c_imgui.igSetNextItemWidth(20);
-                _ = c_imgui.igSliderFloat("##", &self.saved_settings.volume, 0, 100, "", 
-                    c_imgui.ImGuiSliderFlags_NoRoundToFormat |
-                    c_imgui.ImGuiSliderFlags_Vertical
-                );
-                emulator.setVolume(@floatCast(self.saved_settings.volume));
-                c_imgui.igEndMenu();
-                c_imgui.igPopStyleVar(1);
-            }
-            c_imgui.igEndMenu();
-        }
-        c_imgui.igEndMenuBar();
-        c_imgui.igPopStyleVar(2);
+        c_imgui.igEndMenu();
     }
 }
 
@@ -282,6 +315,7 @@ pub fn showLoadPaletteModal(self: *Self, emulator: *Emulator) void {
         if (input_text_submit) {
             std.debug.print("{s}\n", .{&self.palette_path});
             emulator.loadPalette(&self.palette_path);
+            self.saved_settings.use_default_palette = false;
             self.appendToRecentPaths(&self.saved_settings.recent_palettes, self.palette_path) catch {};
             self.show_load_palette_modal = false;
             c_imgui.igCloseCurrentPopup();
@@ -303,8 +337,8 @@ pub fn showPaletteViewer(self: *Self) void {
         c_imgui.igImage(
             @ptrFromInt(self.palette_viewer_texture),  
             c_imgui.ImVec2{
-                .x = PaletteViewer.width * self.saved_settings.palette_viewer_scale, 
-                .y = PaletteViewer.height * self.saved_settings.palette_viewer_scale
+                .x = @floatFromInt(PaletteViewer.width * @as(usize, @intCast(self.saved_settings.palette_viewer_scale))), 
+                .y = @floatFromInt(PaletteViewer.height * @as(usize, @intCast(self.saved_settings.palette_viewer_scale)))
             }, 
             c_imgui.ImVec2{.x = 0, .y = 0}, 
             c_imgui.ImVec2{.x = 1, .y = 1},
@@ -327,8 +361,8 @@ pub fn showSpriteViewer(self: *Self) void {
         c_imgui.igImage(
             @ptrFromInt(self.sprite_viewer_texture),  
             c_imgui.ImVec2{
-                .x = SpriteViewer.width * self.saved_settings.sprite_viewer_scale, 
-                .y = SpriteViewer.height * self.saved_settings.sprite_viewer_scale
+                .x = @floatFromInt(SpriteViewer.width * @as(usize, @intCast(self.saved_settings.sprite_viewer_scale))), 
+                .y = @floatFromInt(SpriteViewer.height * @as(usize, @intCast(self.saved_settings.sprite_viewer_scale)))
             }, 
             c_imgui.ImVec2{.x = 0, .y = 0}, 
             c_imgui.ImVec2{.x = 1, .y = 1},
@@ -340,7 +374,10 @@ pub fn showSpriteViewer(self: *Self) void {
 }
 
 pub fn showNametableViewer(self: *Self) void {
-    c_imgui.igSetNextWindowSize(.{.x = 0, .y = NametableViewer.width * self.saved_settings.nametable_viewer_scale * 2}, 0);
+    c_imgui.igSetNextWindowSize(.{
+        .x = 0, 
+        .y = @floatFromInt(NametableViewer.width * @as(usize, @intCast(self.saved_settings.nametable_viewer_scale)) * 2)
+    }, 0);
     const nametable_viewer = c_imgui.igBegin(
         "Nametable Viewer", 
         &self.saved_settings.show_nametable_viewer, 
@@ -350,8 +387,8 @@ pub fn showNametableViewer(self: *Self) void {
         c_imgui.igImage(
             @ptrFromInt(self.nametable_viewer_texture),  
             c_imgui.ImVec2{
-                .x = NametableViewer.width * self.saved_settings.nametable_viewer_scale, 
-                .y = NametableViewer.height * self.saved_settings.nametable_viewer_scale
+                .x = @floatFromInt(NametableViewer.width * @as(usize, @intCast(self.saved_settings.nametable_viewer_scale))), 
+                .y = @floatFromInt(NametableViewer.height * @as(usize, @intCast(self.saved_settings.nametable_viewer_scale)))
             }, 
             c_imgui.ImVec2{.x = 0, .y = 0}, 
             c_imgui.ImVec2{.x = 1, .y = 1},
@@ -398,8 +435,8 @@ pub fn showMainWindow(self: *Self, emulator: *Emulator) void {
         c_imgui.igImage(
             @ptrFromInt(self.screen_texture),  
             c_imgui.ImVec2{
-                .x = 256 * self.saved_settings.screen_scale, 
-                .y = 240 * self.saved_settings.screen_scale
+                .x = @floatFromInt(256 * self.saved_settings.screen_scale), 
+                .y = @floatFromInt(240 * self.saved_settings.screen_scale)
             }, 
             c_imgui.ImVec2{.x = 0, .y = 0}, 
             c_imgui.ImVec2{.x = 1, .y = 1},
@@ -462,6 +499,18 @@ fn appendToRecentPaths(self: *Self, recent_paths_array: *[][]const u8, path_buff
     recent_paths_array.* = new_recent_paths_list;
 }
 
+fn movePathToFront(recent_paths_array: *[][]const u8, path: []const u8) void {
+    var i: usize = recent_paths_array.*.len - 1;
+    while (recent_paths_array.*[i].ptr != path.ptr) {
+        i -= 1;
+    }
+    while (i > 0) {
+        recent_paths_array.*[i] = recent_paths_array.*[i - 1];
+        i -= 1;
+    }
+    recent_paths_array.*[0] = path;
+}
+
 pub fn loadSettings(self: *Self, emulator: *Emulator) !void {
     const settings_file = try std.fs.cwd().readFileAlloc(self.allocator, settings_path, 1000000);
     defer self.allocator.free(settings_file);
@@ -489,7 +538,7 @@ pub fn loadSettings(self: *Self, emulator: *Emulator) !void {
 
     // Some of the settings need to be manually applied
     emulator.setVolume(@floatCast(self.saved_settings.volume));
-    if (self.saved_settings.recent_palettes.len > 0) {
+    if (self.saved_settings.recent_palettes.len > 0 and !self.saved_settings.use_default_palette) {
         emulator.loadPalette(self.saved_settings.recent_palettes[0]);
     }
 }

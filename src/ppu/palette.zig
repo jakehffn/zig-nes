@@ -42,3 +42,10 @@ pub fn loadPalette(self: *Self, palette_path: []const u8) !void {
     }
     _ = try in_stream.readAll(@as(*[64 * 3]u8, @ptrCast(self.palette_data)));
 }
+
+pub fn useDefaultPalette(self: *Self) void {
+    if (self.isPaletteAllocated()) {
+        self.allocator.free(self.palette_data);
+    }
+    self.palette_data = fallback_palette;
+}

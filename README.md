@@ -1,15 +1,15 @@
-<h1 align=center>
-    ZigNES 🕹️
-</h1>  
-<h4 align=center>
-    NES emulator written in Zig with GUI using imgui.
-</h4>
+<div align=center>
+    <h1>
+        ZigNES 🕹️
+    </h1>  
+    <h4>
+        NES emulator written in Zig with GUI using imgui.
+    </h4>
+    <img src="media/example-games.png" alt-text="ZigNES Examples">
+</div>
 
-![ZigNES exampe](media/example-lawn-mower.png)
 
-Currently, only the NROM mapper is supported.
-
-This can run games like Super Mario Bros., Donkey Kong, and PacMan.
+Currently, only mappers 0 and 1 are supported.
 
 ## Build
 
