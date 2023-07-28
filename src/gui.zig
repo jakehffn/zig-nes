@@ -139,7 +139,7 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
         c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_ItemSpacing, .{.x = 6, .y = 6});
         if (c_imgui.igBeginMenu("File", true)) {
             self.show_load_rom_modal = c_imgui.igMenuItem_Bool("Load Rom", "", false, true);
-            if (c_imgui.igBeginMenu("Recent Roms...", self.saved_settings.recent_roms.len != 0)) {
+            if (c_imgui.igBeginMenu("Recent...##rom", self.saved_settings.recent_roms.len != 0)) {
                 for (self.saved_settings.recent_roms) |recent_rom| {
                     const name_start = @max(
                         std.mem.lastIndexOf(u8, recent_rom, "\\") orelse 0,
@@ -153,7 +153,7 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
             }
             c_imgui.igSeparator();
             self.show_load_palette_modal = c_imgui.igMenuItem_Bool("Load Palette", "", false, true);
-            if (c_imgui.igBeginMenu("Recent Palettes...", self.saved_settings.recent_palettes.len != 0)) {
+            if (c_imgui.igBeginMenu("Recent...##palette", self.saved_settings.recent_palettes.len != 0)) {
                 for (self.saved_settings.recent_palettes) |recent_palette| {
                     const name_start = @max(
                         std.mem.lastIndexOf(u8, recent_palette, "\\") orelse 0,
@@ -489,7 +489,9 @@ pub fn loadSettings(self: *Self, emulator: *Emulator) !void {
 
     // Some of the settings need to be manually applied
     emulator.setVolume(@floatCast(self.saved_settings.volume));
-    emulator.loadPalette(self.saved_settings.recent_palettes[0]);
+    if (self.saved_settings.recent_palettes.len > 0) {
+        emulator.loadPalette(self.saved_settings.recent_palettes[0]);
+    }
 }
 
 pub fn saveSettings(self: *Self) !void {
