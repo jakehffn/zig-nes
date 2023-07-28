@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const panic = std.debug.panic;
 const mode = @import("builtin").mode;
 
@@ -9,7 +10,7 @@ const PaletteViewer = @import("./debug/palette_viewer.zig");
 const SpriteViewer = @import("./debug/sprite_viewer.zig");
 const NametableViewer = @import("./debug/nametable_viewer.zig");
 
-const SystemPalettes = @import("./system_palettes.zig");
+const Palette = @import("./palette.zig");
 
 const ppu_log_file = @import("../main.zig").ppu_log_file;
 const logging_enabled = !(ppu_log_file == null or mode != .Debug);
@@ -58,7 +59,7 @@ palette_offset_latch: u16 = 0,
 tile_address: u16 = 0,
 tile_address_latch: u16 = 0,
 
-palette: *const [64][3]u8,
+palette: Palette,
 screen: Screen,
 
 palette_viewer: PaletteViewer,
@@ -291,14 +292,14 @@ const Screen = struct {
     }
 };
 
-pub fn init(ppu_bus: *PpuBus, render_callback: *const fn () void) !Self {
+pub fn init(allocator: Allocator, ppu_bus: *PpuBus, render_callback: *const fn () void) !Self {
     var ppu: Self = .{
         .ppu_bus = ppu_bus,
         .render_callback = render_callback,
         .main_bus = undefined,
         .oam = undefined,
         .secondary_oam = undefined,
-        .palette = &SystemPalettes.default_palette,
+        .palette = Palette.init(allocator),
         .screen = Screen.init(),
         .palette_viewer = PaletteViewer.init(),
         .sprite_viewer = SpriteViewer.init(),
@@ -324,6 +325,31 @@ pub fn deinit(self: *Self) void {
     if (self.log_file) |file| {
         file.close();
     }
+    self.palette.deinit();
+}
+
+pub fn reset(self: *Self) void {
+    @memset(self.oam[0..], 0);
+    @memset(self.secondary_oam[0..], 0);
+    
+    self.v = 0;
+    self.t.value = 0;
+    self.x = 0;
+    self.w = true;
+    self.scanline = 0;
+    self.dot = 0;
+    self.pre_render_dot_skip = false;
+    self.total_cycles = 0;
+    self.secondary_oam_size = 0;
+    self.tile_low_shift = 0;
+    self.tile_low_shift_latch = 0;
+    self.tile_high_shift = 0;
+    self.tile_high_shift_latch = 0;
+    self.palette_offset = 0;
+    self.previous_palette_offset = 0;
+    self.palette_offset_latch = 0;
+    self.tile_address = 0;
+    self.tile_address_latch = 0;
 }
 
 pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
@@ -607,6 +633,6 @@ fn renderPixel(self: *Self) void {
             }
         }
     }
-    var pixel_color = self.palette[self.ppu_bus.read(0x3F00 + pixel_color_address) % 64];
-    self.screen.setPixel(self.dot - 1, self.scanline, &pixel_color);
+    var pixel_color = self.palette.getColor(self.ppu_bus.read(0x3F00 + pixel_color_address) % 64);
+    self.screen.setPixel(self.dot - 1, self.scanline, pixel_color);
 }

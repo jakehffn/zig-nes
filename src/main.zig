@@ -290,12 +290,7 @@ var spec_requested: c_sdl.SDL_AudioSpec = .{
 var spec_obtained: c_sdl.SDL_AudioSpec = undefined;
 var audio_device: c_sdl.SDL_AudioDeviceID = undefined;
 
-var gui: Gui = .{
-    .screen_texture = undefined,
-    .palette_viewer_texture = undefined,
-    .sprite_viewer_texture = undefined,
-    .nametable_viewer_texture = undefined
-};
+var gui: Gui = undefined;
 var controller_status: ControllerStatus = .{};
 
 var surplus_time: f16 = 0;
@@ -311,6 +306,14 @@ pub fn main() !void {
 
     try emulator.init(allocator, renderCallback, audioCallback);
     defer emulator.deinit();
+
+    gui = Gui.init(allocator);
+    gui.loadSettings(&emulator) catch |e| {
+        std.debug.print("Error loading settings: {}\n", .{e});
+    };
+    defer gui.saveSettings() catch {
+        std.debug.print("Error saving settings\n", .{});
+    };
 
     gui.screen_texture = createTexture();
     gui.palette_viewer_texture = createTexture();
@@ -343,19 +346,22 @@ pub fn main() !void {
         if (gui.show_load_rom_modal) {
             gui.showLoadRomModal(&emulator);
         }
-        if (gui.show_palette_viewer) {
+        if (gui.show_load_palette_modal) {
+            gui.showLoadPaletteModal(&emulator);
+        }
+        if (gui.saved_settings.show_palette_viewer) {
             updatePaletteViewerTexture();
             gui.showPaletteViewer();
         }
-        if (gui.show_sprite_viewer) {
+        if (gui.saved_settings.show_sprite_viewer) {
             updateSpriteViewerTexture();
             gui.showSpriteViewer();
         }
-        if (gui.show_nametable_viewer) {
+        if (gui.saved_settings.show_nametable_viewer) {
             updateNametableViewerTexture();
             gui.showNametableViewer();
         }
-        if (gui.show_performance_monitor) {
+        if (gui.saved_settings.show_performance_monitor) {
             gui.showPerformanceMonitor(surplus_time);
             surplus_time = 0;
         }

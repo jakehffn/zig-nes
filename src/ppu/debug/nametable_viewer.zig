@@ -54,7 +54,7 @@ pub fn update(self: *Self, ppu: anytype) void {
                         upper >>= 1;
                         lower >>= 1;
                         var color: u8 = bg_palette[palette_color];
-                        var pixel = &ppu.palette[color];
+                        var pixel = ppu.palette.getColor(color);
                         const x_offset = 7 - x;
                         const y_offset = y;
                         const texture_tile_y = tile_y + 30 * nametable;

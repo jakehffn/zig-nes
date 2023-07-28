@@ -1,4 +1,9 @@
-pub const default_palette = [64][3]u8{
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Self = @This();
+
+var fallback_palette = [64][3]u8{
     [_]u8{0x80, 0x80, 0x80}, [_]u8{0x00, 0x3D, 0xA6}, [_]u8{0x00, 0x12, 0xB0}, [_]u8{0x44, 0x00, 0x96}, [_]u8{0xA1, 0x00, 0x5E},
     [_]u8{0xC7, 0x00, 0x28}, [_]u8{0xBA, 0x06, 0x00}, [_]u8{0x8C, 0x17, 0x00}, [_]u8{0x5C, 0x2F, 0x00}, [_]u8{0x10, 0x45, 0x00},
     [_]u8{0x05, 0x4A, 0x00}, [_]u8{0x00, 0x47, 0x2E}, [_]u8{0x00, 0x41, 0x66}, [_]u8{0x00, 0x00, 0x00}, [_]u8{0x05, 0x05, 0x05},
@@ -13,3 +18,40 @@ pub const default_palette = [64][3]u8{
     [_]u8{0xFF, 0xEF, 0xA6}, [_]u8{0xFF, 0xF7, 0x9C}, [_]u8{0xD7, 0xE8, 0x95}, [_]u8{0xA6, 0xED, 0xAF}, [_]u8{0xA2, 0xF2, 0xDA},
     [_]u8{0x99, 0xFF, 0xFC}, [_]u8{0xDD, 0xDD, 0xDD}, [_]u8{0x11, 0x11, 0x11}, [_]u8{0x11, 0x11, 0x11}
 }; 
+
+allocator: Allocator,
+palette_data: *[64][3]u8,
+
+pub fn init(allocator: Allocator) Self {
+    return .{
+        .allocator = allocator,
+        .palette_data = &fallback_palette
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    if (self.isPaletteAllocated()) {
+        self.allocator.destroy(self.palette_data);
+    }
+}
+
+pub fn getColor(self: *Self, index: usize) []u8 {
+    return &self.palette_data[index];
+}
+
+fn isPaletteAllocated(self: *Self) bool {
+    return self.palette_data != &fallback_palette;
+}
+
+pub fn loadPalette(self: *Self, palette_path: []const u8) !void {
+    var file = try std.fs.cwd().openFile(palette_path, .{});
+    defer file.close();
+
+    var buf_reader = std.io.bufferedReader(file.reader());
+    var in_stream = buf_reader.reader();
+
+    if (!self.isPaletteAllocated()) {
+        self.palette_data = try self.allocator.create([64][3]u8);
+    }
+    _ = try in_stream.readAll(@as(*[64 * 3]u8, @ptrCast(self.palette_data)));
+}

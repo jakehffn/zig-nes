@@ -19,7 +19,7 @@ pub fn update(self: *Self, ppu: anytype) void {
             const color_index = ppu.ppu_bus.read(
                 0x3F00 + @as(u16, @truncate(palette_index))*4 + @as(u16, @truncate(palette_color_index))
             );
-            var pixel = &ppu.palette[color_index % 64];
+            var pixel = ppu.palette.getColor(color_index % 64);
             const offset = palette_index * 3 * width + palette_color_index * 3;
             @memcpy(self.data[offset..offset + 3], pixel);
         }

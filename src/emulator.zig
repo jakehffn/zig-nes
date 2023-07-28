@@ -16,6 +16,8 @@ const sample_buffer_size = @import("./main.zig").sample_buffer_size;
 
 const Self = @This();
 
+allocator: Allocator = undefined,
+
 cpu: Cpu = undefined,
 main_bus: MainBus = undefined,
 ppu: Ppu = undefined,
@@ -28,11 +30,13 @@ controllers: Controllers = .{},
 frame_ready: bool = false,
 
 pub fn init(self: *Self, allocator: Allocator, render_callback: *const fn () void, audio_callback: *const fn () void) !void {
+    self.allocator = allocator;
+
     self.ppu_bus = PpuBus.init();
 
     self.apu = Apu.init(audio_callback);
     self.cpu = try Cpu.init();
-    self.ppu = try Ppu.init(&self.ppu_bus, render_callback);
+    self.ppu = try Ppu.init(allocator, &self.ppu_bus, render_callback);
 
     self.main_bus = MainBus.init(&self.ppu, &self.apu, &self.controllers);
 
@@ -49,15 +53,24 @@ pub fn deinit(self: *Self) void {
     self.rom_loader.deinit();
 }
 
-pub fn loadRom(self: *Self, rom_path: []const u8) void {
+pub fn loadRom(self: *Self, rom_path: []const u8) bool {
     self.rom_loader.loadRom(rom_path) catch {
         std.debug.print("ZigNES: Unable to load ROM file: {s}\n", .{rom_path});
-        return;
+        return false;
     };
     self.main_bus.setRom(self.rom_loader.getRom());
     self.ppu_bus.setRom(self.rom_loader.getRom());
     // Reset vectors only available at this point
     self.reset();
+
+    return true;
+}
+
+pub fn loadPalette(self: *Self, palette_path: []const u8) void {
+    self.ppu.palette.loadPalette(palette_path) catch {
+        std.debug.print("ZigNES: Unable to load Palette file: {s}\n", .{palette_path});
+        return;
+    };
 }
 
 /// Steps cpu, ppu, and apu until a frame is rendered
@@ -124,16 +137,10 @@ pub fn getScreenPixels(self: *Self) *anyopaque {
 }
 
 pub fn reset(self: *Self) void {
-    if (self.rom_loader.rom != null) {
-        self.cpu.reset();
-        // Deinit and reinit ppu to get default values
-        var render_callback = self.ppu.render_callback;
-        self.ppu.deinit();
-        self.ppu = Ppu.init(&self.ppu_bus, render_callback) catch unreachable;
-        self.ppu.connectMainBus(&self.main_bus);
-
-        self.apu.reset();
-    }
+    self.cpu.reset();
+    self.ppu.reset();
+    self.apu.reset();
+    self.main_bus.reset();
 }
 
 pub fn setVolume(self: *Self, volume: f16) void {

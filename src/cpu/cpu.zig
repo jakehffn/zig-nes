@@ -205,6 +205,9 @@ pub fn reset(self: *Self) void {
     self.total_cycles = 8;
 
     self.p = @bitCast(@as(u8, 0));
+    self.a = 0;
+    self.x = 0;
+    self.y = 0;
     self.total_cycles = 0;
     self.wait_cycles = 0;
 }

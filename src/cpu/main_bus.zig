@@ -29,6 +29,11 @@ pub fn init(ppu: *Ppu, apu: *Apu, controllers: *Controllers) Self {
     return main_bus;
 }
 
+pub fn reset(self: *Self) void {
+    self.irq = false;
+    self.nmi = false;
+}
+
 pub fn read(self: *Self, address: u16) u8 {
     return switch (address) {
         0...0x1FFF => self.cpu_ram[address % 0x800],
@@ -103,11 +108,6 @@ pub fn write(self: *Self, address: u16, value: u8) void {
             std.debug.print("Unmapped main bus write: {X}\n", .{address});
         }
     }
-}
-
-pub fn reset(self: *Self) void {
-    self.irq = false;
-    self.nmi = false;
 }
 
 pub fn setRom(self: *Self, rom: Rom) void {
