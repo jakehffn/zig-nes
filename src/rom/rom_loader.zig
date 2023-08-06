@@ -5,11 +5,12 @@ const Allocator = std.mem.Allocator;
 
 const NROM = @import("./mappers/NROM.zig");
 const SxROM = @import("./mappers/SxROM.zig");
+const TxROM = @import("./mappers/TxROM.zig");
 
 const Self = @This();
 
 pub const Rom = struct {
-    rom_loader: *Self,
+    rom_loader: *Self = undefined,
 
     init_fn: *const fn (*Self) anyerror!void,
     deinit_fn: *const fn (*Self) void,
@@ -18,6 +19,8 @@ pub const Rom = struct {
     write_fn: *const fn (*Self, u16, u8) void,
     ppu_read_fn: *const fn (*Self, u16) u8,
     ppu_write_fn: *const fn (*Self, u16, u8) void,
+
+    mapper_irq_fn: ?*const fn (*Self) void = null,
 
     pub inline fn init(self: *Rom) !void {
         try self.init_fn(self.rom_loader);
@@ -41,6 +44,12 @@ pub const Rom = struct {
 
     pub inline fn ppuWrite(self: *Rom, address: u16, value: u8) void {
         self.ppu_write_fn(self.rom_loader, address, value);
+    }
+
+    pub inline fn mapperIrq(self: *Rom) void {
+        if (self.mapper_irq_fn) |mapper_irq_fn| {
+            mapper_irq_fn(self.rom_loader);
+        }
     }
 };
 
@@ -70,13 +79,15 @@ ppu_ram: ArrayList(u8),
 
 rom_data: *anyopaque = undefined,
 rom: ?Rom = null,
+irq: *bool = undefined,
 
-pub fn init(allocator: Allocator) Self {
+pub fn init(allocator: Allocator, irq: *bool) Self {
     return .{
         .allocator = allocator,
         .prg_rom = ArrayList(u8).init(allocator),
         .chr_rom = ArrayList(u8).init(allocator),
         .ppu_ram = ArrayList(u8).init(allocator),
+        .irq = irq
     };
 }
 
@@ -167,6 +178,7 @@ fn initRom(self: *Self) !void {
     self.rom = switch (self.header.mapper_type) {
         0 => NROM.rom(),
         1 => SxROM.rom(),
+        4 => TxROM.rom(),
         else => |mapper_id| {
             self.rom = null;
             std.debug.print("RomLoader: Unsupported mapper type: {}\n", .{mapper_id});

@@ -23,14 +23,14 @@ control_register: packed union {
     }
 } = .{.value = 0},
 
+prg_register: u5 = 0,
 chr_register_zero: u5 = 0,
 chr_register_one: u5 = 0,
-prg_register: u5 = 0,
 
-chr_bank_offset_zero: u32 = 0,
-chr_bank_offset_one: u32 = 0,
 prg_bank_offset_zero: u32 = 0,
 prg_bank_offset_one: u32 = 0,
+chr_bank_offset_zero: u32 = 0,
+chr_bank_offset_one: u32 = 0,
 
 prg_ram: [0x8000]u8 = undefined,
 chr_ram: [0x2000]u8 = undefined,

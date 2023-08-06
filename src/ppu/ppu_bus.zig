@@ -54,3 +54,7 @@ inline fn getPaletteAddress(address: u16) u16 {
 pub fn setRom(self: *Self, rom: Rom) void {
     self.rom = rom;
 }
+
+pub fn mapperIrq(self: *Self) void {
+    self.rom.mapperIrq();
+}

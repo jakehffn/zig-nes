@@ -220,6 +220,7 @@ fn interruptRequest(self: *Self) void {
     const addr_high: u16 = self.bus.read(0xFFFF);
     self.pc = (addr_high << 8) | addr_low;
     self.total_cycles +|= 7;
+    self.irq.* = false;
 }
 
 pub fn step(self: *Self) void {

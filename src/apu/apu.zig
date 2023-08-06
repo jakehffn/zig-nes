@@ -266,7 +266,9 @@ pub fn connectMainBus(self: *Self, main_bus: *MainBus) void {
 inline fn updateIrq(self: *Self) void {
     const frame_counter_irq = self.frame_counter.frame_interrupt and !self.frame_counter.interrupt_inhibited;
     const dmc_irq = self.dmc_channel.dmc_interrupt and self.dmc_channel.interrupt_enabled;
-    self.irq.* = frame_counter_irq or dmc_irq;
+    if (frame_counter_irq or dmc_irq) {
+        self.irq.* = true;
+    }
 }
 
 inline fn stepSweeps(self: *Self) void {

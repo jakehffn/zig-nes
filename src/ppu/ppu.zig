@@ -20,6 +20,7 @@ const Self = @This();
 ppu_bus: *PpuBus,
 main_bus: *MainBus,
 render_callback: *const fn () void,
+mapper_irq: *bool = undefined,
 
 v: u15 = 0, // Current VRAM address
 t: packed union {
@@ -434,6 +435,9 @@ fn renderStep(self: *Self) void {
         self.renderPixel();
         self.incrementShiftRegisters();
     } else if (self.dot >= 257 and self.dot <= 320) {
+        if (self.dot == 260 and self.mask_register.flags.b == 1 and self.mask_register.flags.s == 1) {
+            self.ppu_bus.mapperIrq();
+        }
         if (self.isRenderingEnabled()) {
             if ((self.dot -% 261) % 8 == 0) {
                 self.updateTileRegisters();
@@ -561,7 +565,7 @@ fn renderPixel(self: *Self) void {
     var background_is_global = false;
 
     // If background rendering is active...
-    if (self.mask_register.flags.b == 1) {
+    if (self.mask_register.flags.b == 1 and !(self.mask_register.flags.m == 0 and self.dot <= 8)) {
         const x_offset: u3 = self.x;
         const palette_color: u16 = (((self.tile_low_shift << x_offset) & 0x8000) >> 15)  | 
                                    (((self.tile_high_shift << x_offset) & 0x8000) >> 14);
@@ -576,7 +580,7 @@ fn renderPixel(self: *Self) void {
         pixel_color_address = (palette_offset | palette_color);
     }
     // If sprite rendering is active...
-    if (self.mask_register.flags.s == 1) {
+    if (self.mask_register.flags.s == 1 and !(self.mask_register.flags.M == 0 and self.dot <= 8)) {
         const use_tall_sprites = self.controller_register.flags.H == 1;
         const sprite_height: u16 = if (use_tall_sprites) 16 else 8;
 

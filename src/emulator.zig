@@ -44,7 +44,7 @@ pub fn init(self: *Self, allocator: Allocator, render_callback: *const fn () voi
     self.ppu.connectMainBus(&self.main_bus);
     self.apu.connectMainBus(&self.main_bus);
 
-    self.rom_loader = RomLoader.init(allocator);
+    self.rom_loader = RomLoader.init(allocator, &self.main_bus.irq);
 }
 
 pub fn deinit(self: *Self) void {
