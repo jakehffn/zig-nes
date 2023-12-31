@@ -65,19 +65,19 @@ pub fn build(b: *std.Build) void {
     };
     defer allocator.free(sdl2_dll_path);
 
-    imgui.addIncludePath("./libs/cimgui/imgui");
-    imgui.addIncludePath(sdl2_include_path);
-    imgui.addLibraryPath(sdl2_lib_path);
+    imgui.addIncludePath(.{.path="./libs/cimgui/imgui"});
+    imgui.addIncludePath(.{.path=sdl2_include_path});
+    imgui.addLibraryPath(.{.path=sdl2_lib_path});
     
     imgui.linkSystemLibrary("opengl32");
     imgui.linkSystemLibrary("sdl2");
 
-    exe.addIncludePath("./libs/cimgui");
-    exe.addIncludePath("./libs/cimgui/generator/output");
+    exe.addIncludePath(.{.path="./libs/cimgui"});
+    exe.addIncludePath(.{.path="./libs/cimgui/generator/output"});
     exe.linkLibrary(imgui);
 
-    exe.addIncludePath(sdl2_include_path);
-    exe.addLibraryPath(sdl2_lib_path);
+    exe.addIncludePath(.{.path=sdl2_include_path});
+    exe.addLibraryPath(.{.path=sdl2_lib_path});
     b.installBinFile(sdl2_dll_path, "SDL2.dll");
 
     const glew_path = std.process.getEnvVarOwned(allocator, "GLEW_PATH") catch {
@@ -97,8 +97,8 @@ pub fn build(b: *std.Build) void {
     };
     defer allocator.free(glew_lib_path);
 
-    exe.addIncludePath(glew_include_path);
-    exe.addLibraryPath(glew_lib_path);
+    exe.addIncludePath(.{.path=glew_include_path});
+    exe.addLibraryPath(.{.path=glew_lib_path});
 
     exe.linkSystemLibrary("opengl32");
     exe.linkSystemLibrary("sdl2");

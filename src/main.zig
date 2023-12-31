@@ -1,6 +1,9 @@
 const std = @import("std");
 const GPA = std.heap.GeneralPurposeAllocator;
 
+const builtin = @import("builtin");
+const DEBUG = builtin.mode == .Debug;
+
 const c_glew = @cImport({
     @cInclude("GL/glew.h");
 });

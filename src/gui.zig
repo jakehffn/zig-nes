@@ -545,5 +545,5 @@ pub fn loadSettings(self: *Self, emulator: *Emulator) !void {
 
 pub fn saveSettings(self: *Self) !void {
     var settings_file = try std.fs.cwd().createFile(settings_path, .{});
-    try std.json.stringify(self.saved_settings, .{.whitespace = .{.indent = .tab}}, settings_file.writer());
+    try std.json.stringify(self.saved_settings, .{.whitespace = .indent_tab}, settings_file.writer());
 }
