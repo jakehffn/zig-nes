@@ -9,14 +9,14 @@ const c_imgui = @cImport({
     @cInclude("cimgui_impl.h");
 });
 
-const PaletteViewer = @import("./ppu/debug/palette_viewer.zig");
-const SpriteViewer = @import("./ppu/debug/sprite_viewer.zig");
-const NametableViewer = @import("./ppu/debug/nametable_viewer.zig");
+const PaletteViewer = @import("../../core/ppu/debug/palette_viewer.zig");
+const SpriteViewer = @import("../../core/ppu/debug/sprite_viewer.zig");
+const NametableViewer = @import("../../core/ppu/debug/nametable_viewer.zig");
 
-const Emulator = @import("emulator.zig");
+const Emulator = @import("../../core/emulator.zig");
 
-const renderCallback = @import("./main.zig").renderCallback;
-const emptyCallback = @import("./main.zig").emptyCallback;
+const renderCallback = @import("./sdl_imgui.zig").renderCallback;
+const emptyCallback = @import("./sdl_imgui.zig").emptyCallback;
 
 const Self = @This();
 

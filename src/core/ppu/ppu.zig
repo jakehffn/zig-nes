@@ -12,7 +12,7 @@ const NametableViewer = @import("./debug/nametable_viewer.zig");
 
 const Palette = @import("./palette.zig");
 
-const ppu_log_file = @import("../main.zig").ppu_log_file;
+const ppu_log_file = @import("../../main.zig").Frontend.ppu_log_file;
 const logging_enabled = !(ppu_log_file == null or mode != .Debug);
 
 const Self = @This();

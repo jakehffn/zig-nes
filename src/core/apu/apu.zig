@@ -5,8 +5,8 @@ const c_sdl = @cImport({
     @cInclude("SDL_opengl.h");
 });
 
-const sample_buffer_size = @import("../main.zig").sample_buffer_size;
-const audio_frequency = @import("../main.zig").audio_frequency;
+const sample_buffer_size = @import("../../main.zig").Frontend.sample_buffer_size;
+const audio_frequency = @import("../../main.zig").Frontend.audio_frequency;
 
 const MainBus = @import("../cpu/main_bus.zig");
 

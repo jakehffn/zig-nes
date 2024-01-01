@@ -4,7 +4,7 @@ const mode = @import("builtin").mode;
 const MainBus = @import("./main_bus.zig");
 const OpCode = @import("./opcode.zig");
 
-const cpu_log_file = @import("../main.zig").cpu_log_file;
+const cpu_log_file = @import("../../main.zig").Frontend.cpu_log_file;
 const logging_enabled = !(cpu_log_file == null or mode != .Debug);
 
 const Self = @This();

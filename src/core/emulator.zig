@@ -12,7 +12,7 @@ const RomLoader = @import("./rom/rom_loader.zig");
 const Controllers = @import("./controllers.zig");
 const ControllerStatus = Controllers.Status;
 
-const sample_buffer_size = @import("./main.zig").sample_buffer_size;
+const sample_buffer_size = @import("../main.zig").sample_buffer_size;
 
 const Self = @This();
 
