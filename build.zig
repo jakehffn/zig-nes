@@ -3,6 +3,9 @@ const GPA = std.heap.GeneralPurposeAllocator;
 
 var gpa = GPA(.{}){};
 
+const glew_path = "..\\..\\..\\..\\..\\..\\..\\lib\\glew-2.2.0-win32\\glew-2.2.0";
+const sdl2_path = "..\\..\\..\\..\\..\\..\\..\\lib\\SDL2-devel-2.30.3-VC\\SDL2-2.30.3";
+
 pub fn build(b: *std.Build) void {
     var allocator = gpa.allocator();
 
@@ -11,9 +14,9 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "ZigNES",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = optimize
     });
 
     const imgui = b.addStaticLibrary(.{
@@ -23,8 +26,8 @@ pub fn build(b: *std.Build) void {
     });
     imgui.linkLibCpp();
 
-    imgui.addCSourceFiles( 
-        &[_][]const u8{
+    imgui.addCSourceFiles(.{
+        .files = &[_][]const u8{
             "libs/cimgui/cimgui.cpp",
             "libs/cimgui/imgui/imgui.cpp",
             "libs/cimgui/imgui/imgui_demo.cpp",
@@ -34,27 +37,21 @@ pub fn build(b: *std.Build) void {
             "libs/cimgui/imgui/backends/imgui_impl_opengl3.cpp",
             "libs/cimgui/imgui/imgui_widgets.cpp",
         },
-        &[_][]const u8{
+        .flags = &[_][]const u8{
             "-std=c++17", 
             // "-DCIMGUI_DEFINE_ENUMS_AND_STRUCTS",
             "-DIMGUI_IMPL_API=extern \"C\" __declspec(dllexport)",
             "-DCIMGUI_USE_SDL2",
             "-DCIMGUI_USE_OPENGL3"
         }
-    );
-
-    const sdl2_path = std.process.getEnvVarOwned(allocator, "SDL2_PATH") catch {
-        std.debug.print("Build Error: ENV variable 'SDL2_PATH' not found", .{});
-        return;
-    };
-    defer allocator.free(sdl2_path);
+    });
 
     const sdl2_include_path = std.fs.path.join(allocator, &.{sdl2_path, "include"}) catch |err| {
         std.debug.print("{s}", .{@errorName(err)});
         return;
     };
     defer allocator.free(sdl2_include_path);
-    const sdl2_lib_path = std.fs.path.join(allocator, &.{sdl2_path, "lib/x64"}) catch |err| {
+    const sdl2_lib_path = std.fs.path.join(allocator, &.{sdl2_path, "lib\\x64"}) catch |err| {
         std.debug.print("{s}", .{@errorName(err)});
         return;
     };
@@ -65,27 +62,26 @@ pub fn build(b: *std.Build) void {
     };
     defer allocator.free(sdl2_dll_path);
 
-    imgui.addIncludePath(.{.path="./libs/cimgui/imgui"});
-    imgui.addIncludePath(.{.path=sdl2_include_path});
-    imgui.addLibraryPath(.{.path=sdl2_lib_path});
+    imgui.addIncludePath(b.path("./libs/cimgui/imgui"));
+    imgui.addAfterIncludePath(b.path(sdl2_include_path));
+    imgui.addLibraryPath(b.path(sdl2_lib_path));
     
     imgui.linkSystemLibrary("opengl32");
+    // imgui.linkSystemLibrary2("sdl2", .{
+    //     .needed = true,
+    //     .preferred_link_mode = .static,
+    //     .search_strategy = .paths_first
+    // });
     imgui.linkSystemLibrary("sdl2");
 
-    exe.addIncludePath(.{.path="./libs/cimgui"});
-    exe.addIncludePath(.{.path="./libs/cimgui/generator/output"});
+    exe.addIncludePath(b.path("./libs/cimgui"));
+    exe.addIncludePath(b.path("./libs/cimgui/generator/output"));
     exe.linkLibrary(imgui);
 
-    exe.addIncludePath(.{.path=sdl2_include_path});
-    exe.addLibraryPath(.{.path=sdl2_lib_path});
+    exe.addIncludePath(b.path(sdl2_include_path));
+    exe.addLibraryPath(b.path(sdl2_lib_path));
     b.installBinFile(sdl2_dll_path, "SDL2.dll");
 
-    const glew_path = std.process.getEnvVarOwned(allocator, "GLEW_PATH") catch {
-        std.debug.print("Build Error: ENV variable 'GLEW_PATH' not found", .{});
-        return;
-    };
-    defer allocator.free(glew_path);
-    
     const glew_include_path = std.fs.path.join(allocator, &.{glew_path, "include"}) catch |err| {
         std.debug.print("{s}", .{@errorName(err)});
         return;
@@ -97,19 +93,29 @@ pub fn build(b: *std.Build) void {
     };
     defer allocator.free(glew_lib_path);
 
-    exe.addIncludePath(.{.path=glew_include_path});
-    exe.addLibraryPath(.{.path=glew_lib_path});
+    exe.addIncludePath(b.path(glew_include_path));
+    exe.addLibraryPath(b.path(glew_lib_path));
 
     exe.linkSystemLibrary("opengl32");
-    exe.linkSystemLibrary("sdl2");
-    exe.linkSystemLibrary("glew32");
+    exe.linkSystemLibrary2("sdl2", .{
+        .needed = true,
+        .preferred_link_mode = .static,
+        .search_strategy = .paths_first
+    });
+    // exe.linkSystemLibrary("sdl2");
+    exe.linkSystemLibrary2("glew32", .{
+        .needed = true,
+        .preferred_link_mode = .static,
+        .search_strategy = .paths_first
+    });
+    // exe.linkSystemLibrary("glew32");
     exe.linkLibC();
     // Only output debug messages in debug build
-    if (exe.optimize == .Debug) {
-        exe.subsystem = .Console;
-    } else {
-        exe.subsystem = .Windows;
-    }
+    // if (exe. == .Debug) {
+    //     exe.subsystem = .Console;
+    // } else {
+    //     exe.subsystem = .Windows;
+    // }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -122,7 +128,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "./src/tests.zig"},
+        .root_source_file = b.path("./src/tests.zig"),
         .target = target,
         .optimize = optimize
     });

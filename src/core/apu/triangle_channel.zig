@@ -29,7 +29,7 @@ linear_counter: struct {
                 self.counter -= 1;
             }
         }
-        var triangle_channel = @fieldParentPtr(Self, "linear_counter", self);
+        const triangle_channel = @as(*Self, @alignCast(@fieldParentPtr("linear_counter", self)));
         if (!triangle_channel.length_counter.halt) {
             self.reload = false;
         }

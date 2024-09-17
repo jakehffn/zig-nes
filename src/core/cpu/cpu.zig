@@ -333,7 +333,7 @@ inline fn loadInstruction(self: *Self) void {
             // Indirect is only used by the JMP instruction, so no need to get value
             self.curr_step.bytes[1] = self.bus.read(self.pc);
             self.curr_step.bytes[2] = self.bus.read(self.pc +% 1);
-            const addr_low: u16 = self.curr_step.bytes[1];
+            const addr_low: u8 = @as(u8, self.curr_step.bytes[1]);
             const addr_high: u16 = self.curr_step.bytes[2];
             self.pc +%= 2;
 

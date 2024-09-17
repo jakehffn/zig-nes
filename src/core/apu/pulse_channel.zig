@@ -34,7 +34,7 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
             reload: bool = false,
 
             pub fn step(self: *Sweep) void {
-                var pulse_channel = @fieldParentPtr(Self, "sweep", self);
+                var pulse_channel = @as(*Self, @alignCast(@fieldParentPtr("sweep", self)));
                 const current_period = pulse_channel.timer_reset.value;
                 self.divider -|= 1;
 
@@ -49,7 +49,7 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
             }
 
             fn updateTargetPeriod(self: *Sweep, current_period: u11) void {
-                var change_amount = current_period >> self.shift;
+                const change_amount = current_period >> self.shift;
                 if (!self.negate) {
                     self.target_period = current_period +| change_amount;
                 } else {
@@ -114,7 +114,7 @@ pub fn PulseChannel(comptime is_pulse_one: bool) type {
         }
 
         pub inline fn sweepRegisterWrite(self: *Self, value: u8) void {
-            var data: packed union {
+            const data: packed union {
                 value: u8,
                 bits: packed struct {
                     shift: u3 = 0,

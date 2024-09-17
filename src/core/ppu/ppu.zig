@@ -76,7 +76,7 @@ controller_register: struct {
     flags: ControlFlags = .{},
 
     pub fn write(self: *ControlRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "controller_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("controller_register", self)));
         const prev_v = ppu.controller_register.flags.V;
         ppu.controller_register.flags = @bitCast(value);
         ppu.t.bytes.high = (ppu.t.bytes.high & ~@as(u7, 0b1100)) | @as(u7, @truncate((value & 0b11) << 2)); 
@@ -93,7 +93,7 @@ mask_register: struct {
     flags: MaskFlags = .{},
 
     pub fn write(self: *MaskRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "mask_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("mask_register", self)));
         ppu.mask_register.flags = @bitCast(value);
     }
 } = .{},
@@ -104,7 +104,7 @@ status_register: struct {
     flags: StatusFlags = .{},
 
     pub fn read(self: *StatusRegister) u8 {
-        var ppu = @fieldParentPtr(Self, "status_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("status_register", self)));
         ppu.w = true;
         const return_flags = self.flags;
         self.flags.V = 0;
@@ -127,12 +127,12 @@ oam_data_register: struct {
     const OamDataRegister = @This();
 
     pub fn read(self: *OamDataRegister) u8 {
-        var ppu = @fieldParentPtr(Self, "oam_data_register", self);
+        const ppu = @as(*Self, @alignCast(@fieldParentPtr("oam_data_register", self)));
         return ppu.oam[ppu.oam_address_register.address];
     }
 
     pub fn write(self: *OamDataRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "oam_data_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("oam_data_register", self)));
         ppu.oam[ppu.oam_address_register.address] = value;
         ppu.oam_address_register.address +%= 1;
     }
@@ -142,7 +142,7 @@ scroll_register: struct {
     const ScrollRegister = @This();
 
     pub fn write(self: *ScrollRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "scroll_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("scroll_register", self)));
         if (ppu.w) {
             // First write
             // t: ....... ...ABCDE <- d: ABCDE...
@@ -165,7 +165,7 @@ address_register: struct {
     const AddressRegister = @This();
     
     pub fn write(self: *AddressRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "address_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("address_register", self)));
         if (ppu.w) {
             // First write
             // t: .CDEFGH ........ <- d: ..CDEFGH
@@ -196,7 +196,7 @@ data_register: struct {
     read_buffer: u8 = 0,
 
     pub fn read(self: *DataRegister) u8 { 
-        var ppu = @fieldParentPtr(Self, "data_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("data_register", self)));
         // When reading palette data, the data is placed immediately on the bus
         //  and the buffer instead is filled with the data from the nametables
         //  as if the mirrors continued to the end of the address range
@@ -216,7 +216,7 @@ data_register: struct {
     }    
 
     pub fn write(self: *DataRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "data_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("data_register", self)));
         ppu.ppu_bus.write(ppu.v, value);
         @TypeOf(ppu.address_register).incrementAddress(ppu);
     }
@@ -226,7 +226,7 @@ oam_dma_register: struct {
     const OamDmaRegister = @This();
 
     pub fn write(self: *OamDmaRegister, value: u8) void {
-        var ppu = @fieldParentPtr(Self, "oam_dma_register", self);
+        var ppu = @as(*Self, @alignCast(@fieldParentPtr("oam_dma_register", self)));
         const page = @as(u16, value) << 8;
         for (0..ppu.oam.len) |_| {
             const cpu_page_offset: u16 = ppu.oam_address_register.address;
@@ -619,8 +619,8 @@ fn renderPixel(self: *Self) void {
                 tile_pattern_offset = (@as(u16, self.controller_register.flags.S) * 0x1000) + (tile * 16) + @as(u16, tile_y);
             }
 
-            var lower = self.ppu_bus.read(tile_pattern_offset) >> (7 ^ tile_x);
-            var upper = self.ppu_bus.read(tile_pattern_offset + 8) >> (7 ^ tile_x);
+            const lower = self.ppu_bus.read(tile_pattern_offset) >> (7 ^ tile_x);
+            const upper = self.ppu_bus.read(tile_pattern_offset + 8) >> (7 ^ tile_x);
             const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
             // Don't draw anything if index 0
             if (palette_color == 0) {
@@ -637,6 +637,6 @@ fn renderPixel(self: *Self) void {
             }
         }
     }
-    var pixel_color = self.palette.getColor(self.ppu_bus.read(0x3F00 + pixel_color_address) % 64);
+    const pixel_color = self.palette.getColor(self.ppu_bus.read(0x3F00 + pixel_color_address) % 64);
     self.screen.setPixel(self.dot - 1, self.scanline, pixel_color);
 }

@@ -41,7 +41,7 @@ pub fn update(self: *Self, ppu: anytype) void {
                 } else {
                     color = ppu.ppu_bus.read(0x3F10 + @as(u16, palette_id) * 4 + palette_color);
                 }
-                var pixel = ppu.palette.getColor(color);
+                const pixel = ppu.palette.getColor(color);
                 const x_offset = if (flip_horizontal) x else (7 - x);
                 const y_offset = if (flip_vertical) (7 - y) else y;
                 const offset =  (((i / 8) * 8 + y_offset) * width + ((i % 8) * 8 + x_offset)) * 3;

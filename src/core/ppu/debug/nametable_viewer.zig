@@ -13,7 +13,7 @@ pub fn init() Self {
 
 fn getBackgroundPalette(ppu: anytype, tile_column: usize, tile_row: usize) [4]u8 {
     const attribute_table_index = (tile_row / 4) * 8 + (tile_column / 4);
-    var attribute_byte = ppu.ppu_bus.read(
+    const attribute_byte = ppu.ppu_bus.read(
         @truncate(0x23C0 + 0x400 * @as(u16, ppu.controller_register.flags.N) + attribute_table_index)
     ); 
 
@@ -53,8 +53,8 @@ pub fn update(self: *Self, ppu: anytype) void {
                         const palette_color: u2 = @truncate( (upper & 1) << 1 | (lower & 1));
                         upper >>= 1;
                         lower >>= 1;
-                        var color: u8 = bg_palette[palette_color];
-                        var pixel = ppu.palette.getColor(color);
+                        const color: u8 = bg_palette[palette_color];
+                        const pixel = ppu.palette.getColor(color);
                         const x_offset = 7 - x;
                         const y_offset = y;
                         const texture_tile_y = tile_y + 30 * nametable;

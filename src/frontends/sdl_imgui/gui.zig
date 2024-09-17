@@ -1,6 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const c_sdl = @cImport({
+    @cInclude("SDL.h");
+    @cInclude("SDL_opengl.h");
+});
 const c_imgui = @cImport({
     @cDefine("CIMGUI_DEFINE_ENUMS_AND_STRUCTS", {});
     @cInclude("cimgui.h");
@@ -45,6 +49,7 @@ sprite_viewer_texture: c_uint,
 // Nametable viewer
 nametable_viewer_texture: c_uint,
 // Performance menu
+surplus_time: f16 = 0,
 smoothed_surplus_ms: f16 = 0,
 
 // Settings that are loaded and saved
@@ -70,6 +75,19 @@ saved_settings: struct {
     surplus_ms_smoothing: f16 = 0.95, // Amount of old value to use
     // Audio
     volume: f32 = 50,
+    // Controls
+    show_control_settings_modal: bool = false,
+    controls: struct {
+        d_up: c_int = c_sdl.SDLK_w,
+        d_left: c_int = c_sdl.SDLK_a,
+        d_down: c_int = c_sdl.SDLK_s,
+        d_right: c_int = c_sdl.SDLK_d,
+        start: c_int = c_sdl.SDLK_RETURN,
+        select: c_int = c_sdl.SDLK_SPACE,
+        a: c_int = c_sdl.SDLK_j,
+        b: c_int = c_sdl.SDLK_k,
+        logging: c_int = c_sdl.SDLK_l,
+    } = .{}
 } = .{},
 
 pub fn init(allocator: Allocator) Self {
@@ -92,7 +110,7 @@ fn colorRgbToImVec4(r: f32, g: f32, b: f32, a: f32) c_imgui.ImVec4 {
 
 pub fn initStyles() void {
     c_imgui.igStyleColorsDark(null);
-    var styles = c_imgui.igGetStyle();
+    const styles = c_imgui.igGetStyle();
 
     const main_bg_color = colorRgbToImVec4(45, 53, 59, 255);
     const main_text_color = colorRgbToImVec4(211, 198, 170, 255);
@@ -143,9 +161,45 @@ fn showMainMenu(self: *Self, emulator: *Emulator) void {
         self.showEmuMenu(emulator);
         self.showDebugMenu();
         self.showSettingsMenu(emulator);
+        
         c_imgui.igEndMenuBar();
         c_imgui.igPopStyleVar(2);
     }
+}
+
+pub fn show(
+    self: *Self, 
+    emulator: *Emulator, 
+    palette_viewer_texture_update_fn: *const fn () void,
+    sprite_viewer_texture_update_fn: *const fn () void,
+    nametable_viewer_texture_update_fn: *const fn () void
+) void {
+    self.showMainWindow(emulator);
+        if (self.show_load_rom_modal) {
+            self.showLoadRomModal(emulator);
+        }
+        if (self.show_load_palette_modal) {
+            self.showLoadPaletteModal(emulator);
+        }
+        if (self.saved_settings.show_palette_viewer) {
+            palette_viewer_texture_update_fn();
+            self.showPaletteViewer();
+        }
+        if (self.saved_settings.show_sprite_viewer) {
+            sprite_viewer_texture_update_fn();
+            self.showSpriteViewer();
+        }
+        if (self.saved_settings.show_nametable_viewer) {
+            nametable_viewer_texture_update_fn();
+            self.showNametableViewer();
+        }
+        if (self.saved_settings.show_performance_monitor) {
+            self.showPerformanceMonitor();
+            self.surplus_time = 0;
+        }
+        if (self.saved_settings.show_control_settings_modal) {
+            self.showSetControlsModal();
+        }
 }
 
 fn showFileMenu(self: *Self, emulator: *Emulator) void {
@@ -241,6 +295,7 @@ fn showDebugMenu(self: *Self) void {
 
 fn showSettingsMenu(self: *Self, emulator: *Emulator) void {
     if (c_imgui.igBeginMenu("Settings", true)) {
+        _ = c_imgui.igMenuItem_BoolPtr("Controls", "", &self.saved_settings.show_control_settings_modal, true);
         if (c_imgui.igBeginMenu("Volume", true)) {
             c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_FramePadding, .{.x = 0, .y = 100});
             c_imgui.igSetNextItemWidth(20);
@@ -259,6 +314,63 @@ fn showSettingsMenu(self: *Self, emulator: *Emulator) void {
         }
         c_imgui.igEndMenu();
     }
+}
+
+pub fn showSetControlsModal(self: *Self) void {
+    const show_controls_modal = c_imgui.igBegin(
+        "Controls", 
+        &self.saved_settings.show_control_settings_modal, 
+        c_imgui.ImGuiWindowFlags_NoCollapse |
+        c_imgui.ImGuiWindowFlags_NoResize     
+    );
+    if (show_controls_modal) {
+        const button_width: f32 = 60;
+
+        const controls = [_]struct {
+            label: [*c]const u8,
+            control_ref: *c_int
+        } {
+            .{
+                .label = "Up: ",
+                .control_ref = &self.saved_settings.controls.d_up
+            },
+            .{
+                .label = "Down: ",
+                .control_ref = &self.saved_settings.controls.d_down
+            },
+            .{
+                .label = "Left: ",
+                .control_ref = &self.saved_settings.controls.d_left
+            },
+            .{
+                .label = "Right: ",
+                .control_ref = &self.saved_settings.controls.d_right
+            },
+            .{
+                .label = "A: ",
+                .control_ref = &self.saved_settings.controls.a
+            },
+            .{
+                .label = "B: ",
+                .control_ref = &self.saved_settings.controls.b
+            },
+            .{
+                .label = "Select: ",
+                .control_ref = &self.saved_settings.controls.select
+            },
+            .{
+                .label = "Start: ",
+                .control_ref = &self.saved_settings.controls.start
+            },
+        };
+        for (controls) |control| {
+            c_imgui.igText(control.label);
+            c_imgui.igSameLine(50, 5);
+            if (c_imgui.igButton(c_sdl.SDL_GetKeyName(control.control_ref.*), .{.x = button_width, .y = 0})) {
+            }
+        }
+    }
+    c_imgui.igEnd();
 }
 
 pub fn showLoadRomModal(self: *Self, emulator: *Emulator) void {
@@ -399,7 +511,7 @@ pub fn showNametableViewer(self: *Self) void {
     }
 }
 
-pub fn showPerformanceMonitor(self: *Self, surplus_time: f16) void {
+pub fn showPerformanceMonitor(self: *Self) void {
     c_imgui.igPushStyleVar_Vec2(c_imgui.ImGuiStyleVar_WindowPadding, .{.x = 4, .y = 4});
     c_imgui.igSetNextWindowSize(.{.x = 200, .y = 0}, 0);
     const performance_menu = c_imgui.igBegin(
@@ -409,7 +521,7 @@ pub fn showPerformanceMonitor(self: *Self, surplus_time: f16) void {
     );
     if (performance_menu) {
         self.smoothed_surplus_ms = (self.saved_settings.surplus_ms_smoothing * self.smoothed_surplus_ms) + 
-            ((1 - self.saved_settings.surplus_ms_smoothing) * surplus_time);
+            ((1 - self.saved_settings.surplus_ms_smoothing) * self.surplus_time);
         c_imgui.igText("Idle Time (Per frame)");
         c_imgui.igText("%.2fms", self.smoothed_surplus_ms);
         const frame_duration_ms: f16 = 16.6667;

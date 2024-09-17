@@ -43,7 +43,7 @@ status: struct {
     // Writing to status enables and disables channels
     // Reading from status reports on various conditions of the actual channels, not the flags
     pub fn read(self: *Status) u8 {
-        var apu = @fieldParentPtr(Self, "status", self);
+        const apu = @as(*Self, @alignCast(@fieldParentPtr("status", self)));
 
         var return_flags: packed union {
             value: u8,
@@ -71,7 +71,7 @@ status: struct {
     }
 
     pub fn write(self: *Status, value: u8) void {
-        var apu = @fieldParentPtr(Self, "status", self);
+        var apu = @as(*Self, @alignCast(@fieldParentPtr("status", self)));
 
         var flags: packed union {
             value: u8,
@@ -126,7 +126,7 @@ frame_counter: struct {
     frame_interrupt: bool = false,
 
     inline fn step(self: *FrameCounter) void {
-        var apu = @fieldParentPtr(Self, "frame_counter", self);
+        var apu = @as(*Self, @alignCast(@fieldParentPtr("frame_counter", self)));
         self.counter += 1;
         
         if (self.counter == 7457) {

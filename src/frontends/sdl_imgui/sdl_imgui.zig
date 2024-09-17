@@ -83,7 +83,7 @@ fn initGl() void {
 fn initImgui() void {
     _ = c_imgui.igCreateContext(null);
 
-    var io: *c_imgui.ImGuiIO = c_imgui.igGetIO();
+    const io: *c_imgui.ImGuiIO = c_imgui.igGetIO();
     io.*.ConfigFlags |= c_imgui.ImGuiConfigFlags_NavEnableKeyboard;
     io.*.ConfigFlags |= c_imgui.ImGuiConfigFlags_DockingEnable;         
     io.*.ConfigFlags |= c_imgui.ImGuiConfigFlags_ViewportsEnable; 
@@ -235,7 +235,7 @@ fn audioCallback() void {
     _ = c_sdl.SDL_QueueAudio(audio_device, emulator.getSampleBuffer(), sample_buffer_size * bytes_per_sample);
     while (c_sdl.SDL_GetQueuedAudioSize(audio_device) > sample_buffer_size * 2) {
         c_sdl.SDL_Delay(1);
-        surplus_time += 1;
+        gui.surplus_time += 1;
     }
 }
 
@@ -246,7 +246,7 @@ fn startFrame() void {
 }
 
 fn render() void {
-    var io: *c_imgui.ImGuiIO = c_imgui.igGetIO();
+    const io: *c_imgui.ImGuiIO = c_imgui.igGetIO();
 
     c_imgui.igRender();
     _ = c_sdl.SDL_GL_MakeCurrent(window, gl_context);
@@ -256,8 +256,8 @@ fn render() void {
     c_imgui.ImGui_ImplOpenGL3_RenderDrawData(c_imgui.igGetDrawData());
     
     if (io.ConfigFlags & c_imgui.ImGuiConfigFlags_ViewportsEnable != 0) {
-        var backup_current_window = c_sdl.SDL_GL_GetCurrentWindow();
-        var backup_current_context = c_sdl.SDL_GL_GetCurrentContext();
+        const backup_current_window = c_sdl.SDL_GL_GetCurrentWindow();
+        const backup_current_context = c_sdl.SDL_GL_GetCurrentContext();
         c_imgui.igUpdatePlatformWindows();
         c_imgui.igRenderPlatformWindowsDefault(null, null);
         _ = c_sdl.SDL_GL_MakeCurrent(backup_current_window, backup_current_context);
@@ -295,10 +295,8 @@ var emulator: *Emulator = undefined;
 var gui: Gui = undefined;
 var controller_status: ControllerStatus = .{};
 
-var surplus_time: f16 = 0;
-
 pub fn begin(emu: *Emulator) !void {
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     emulator = emu;
     
     try initSDL();
@@ -345,29 +343,12 @@ pub fn begin(emu: *Emulator) !void {
         }
 
         startFrame();
-        gui.showMainWindow(emulator);
-        if (gui.show_load_rom_modal) {
-            gui.showLoadRomModal(emulator);
-        }
-        if (gui.show_load_palette_modal) {
-            gui.showLoadPaletteModal(emulator);
-        }
-        if (gui.saved_settings.show_palette_viewer) {
-            updatePaletteViewerTexture();
-            gui.showPaletteViewer();
-        }
-        if (gui.saved_settings.show_sprite_viewer) {
-            updateSpriteViewerTexture();
-            gui.showSpriteViewer();
-        }
-        if (gui.saved_settings.show_nametable_viewer) {
-            updateNametableViewerTexture();
-            gui.showNametableViewer();
-        }
-        if (gui.saved_settings.show_performance_monitor) {
-            gui.showPerformanceMonitor(surplus_time);
-            surplus_time = 0;
-        }
+        gui.show(
+            emulator,
+            updatePaletteViewerTexture,
+            updateSpriteViewerTexture,
+            updateNametableViewerTexture
+        );
 
         render();
     }
