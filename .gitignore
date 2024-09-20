@@ -1,3 +1,4 @@
+setup-env.ps1
 /.zig-cache
 /zig-out
 /test-files

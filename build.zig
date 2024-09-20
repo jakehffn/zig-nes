@@ -3,9 +3,6 @@ const GPA = std.heap.GeneralPurposeAllocator;
 
 var gpa = GPA(.{}){};
 
-const glew_path = "..\\..\\..\\..\\..\\..\\..\\lib\\glew-2.2.0-win32\\glew-2.2.0";
-const sdl2_path = "..\\..\\..\\..\\..\\..\\..\\lib\\SDL2-devel-2.30.3-VC\\SDL2-2.30.3";
-
 pub fn build(b: *std.Build) void {
     var allocator = gpa.allocator();
 
@@ -46,76 +43,67 @@ pub fn build(b: *std.Build) void {
         }
     });
 
-    const sdl2_include_path = std.fs.path.join(allocator, &.{sdl2_path, "include"}) catch |err| {
-        std.debug.print("{s}", .{@errorName(err)});
+    const sdl2_path = std.process.getEnvVarOwned(allocator, "SDL2_PATH") catch {
+        std.debug.print("Build Error: ENV variable 'SDL2_PATH' not found", .{});
+        return;
+    };
+    defer allocator.free(sdl2_path);
+
+    const sdl2_include_path = std.process.getEnvVarOwned(allocator, "SDL2_INCLUDE_PATH") catch {
+        std.debug.print("Build Error: ENV variable 'SDL2_INCLUDE_PATH' not found", .{});
         return;
     };
     defer allocator.free(sdl2_include_path);
-    const sdl2_lib_path = std.fs.path.join(allocator, &.{sdl2_path, "lib\\x64"}) catch |err| {
-        std.debug.print("{s}", .{@errorName(err)});
-        return;
-    };
-    defer allocator.free(sdl2_lib_path);
-    const sdl2_dll_path = std.fs.path.join(allocator, &.{sdl2_lib_path, "SDL2.dll"}) catch |err| {
+
+    const sdl2_dll_path = std.fs.path.join(allocator, &.{sdl2_path, "SDL2.dll"}) catch |err| {
         std.debug.print("{s}", .{@errorName(err)});
         return;
     };
     defer allocator.free(sdl2_dll_path);
 
     imgui.addIncludePath(b.path("./libs/cimgui/imgui"));
-    imgui.addAfterIncludePath(b.path(sdl2_include_path));
-    imgui.addLibraryPath(b.path(sdl2_lib_path));
-    
+    imgui.addIncludePath(.{.cwd_relative = sdl2_include_path});
+    imgui.addLibraryPath(.{.cwd_relative = sdl2_path});
+
     imgui.linkSystemLibrary("opengl32");
-    // imgui.linkSystemLibrary2("sdl2", .{
-    //     .needed = true,
-    //     .preferred_link_mode = .static,
-    //     .search_strategy = .paths_first
-    // });
     imgui.linkSystemLibrary("sdl2");
 
     exe.addIncludePath(b.path("./libs/cimgui"));
     exe.addIncludePath(b.path("./libs/cimgui/generator/output"));
     exe.linkLibrary(imgui);
 
-    exe.addIncludePath(b.path(sdl2_include_path));
-    exe.addLibraryPath(b.path(sdl2_lib_path));
-    b.installBinFile(sdl2_dll_path, "SDL2.dll");
+    exe.addIncludePath(.{.cwd_relative = sdl2_include_path});
+    exe.addLibraryPath(.{.cwd_relative = sdl2_path});
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{.cwd_relative = sdl2_dll_path}, .bin, "SDL2.dll").step);
+    // b.installBinFile(sdl2_dll_path, "SDL2.dll");
 
-    const glew_include_path = std.fs.path.join(allocator, &.{glew_path, "include"}) catch |err| {
-        std.debug.print("{s}", .{@errorName(err)});
+    const glew_path = std.process.getEnvVarOwned(allocator, "GLEW_PATH") catch {
+        std.debug.print("Build Error: ENV variable 'GLEW_PATH' not found", .{});
+        return;
+    };
+    defer allocator.free(glew_path);
+
+    const glew_include_path = std.process.getEnvVarOwned(allocator, "GLEW_INCLUDE_PATH") catch {
+        std.debug.print("Build Error: ENV variable 'GLEW_INCLUDE_PATH' not found", .{});
         return;
     };
     defer allocator.free(glew_include_path);
-    const glew_lib_path = std.fs.path.join(allocator, &.{glew_path, "lib"}) catch |err| {
-        std.debug.print("{s}", .{@errorName(err)});
-        return;
-    };
-    defer allocator.free(glew_lib_path);
-
-    exe.addIncludePath(b.path(glew_include_path));
-    exe.addLibraryPath(b.path(glew_lib_path));
+    
+    exe.addIncludePath(.{.cwd_relative = glew_include_path});
+    exe.addLibraryPath(.{.cwd_relative = glew_path});
 
     exe.linkSystemLibrary("opengl32");
-    exe.linkSystemLibrary2("sdl2", .{
-        .needed = true,
-        .preferred_link_mode = .static,
-        .search_strategy = .paths_first
-    });
-    // exe.linkSystemLibrary("sdl2");
-    exe.linkSystemLibrary2("glew32", .{
-        .needed = true,
-        .preferred_link_mode = .static,
-        .search_strategy = .paths_first
-    });
-    // exe.linkSystemLibrary("glew32");
+    exe.linkSystemLibrary("sdl2");
+    exe.linkSystemLibrary("glew32");
     exe.linkLibC();
+
     // Only output debug messages in debug build
-    // if (exe. == .Debug) {
-    //     exe.subsystem = .Console;
-    // } else {
-    //     exe.subsystem = .Windows;
-    // }
+    if (optimize == .Debug) {
+        exe.subsystem = .Console;
+    } else {
+        exe.subsystem = .Windows;
+    }
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
