@@ -162,10 +162,25 @@ pub fn init() !Self {
             if (!logging_enabled) {
                 break :blk undefined;
             }
-            break :blk try std.fs.cwd().createFile(
-                cpu_log_file.?, 
-                .{}
-            );
+
+            if (cpu_log_file) |log_file| {
+                const cwd = std.fs.cwd();
+                const log_file_directory = std.fs.path.dirname(log_file);
+
+                if (log_file_directory) |non_null_directory| {
+                    _ = cwd.makeOpenPath(non_null_directory, .{}) catch {
+                        break :blk undefined;
+                    };
+                    break :blk std.fs.cwd().createFile(
+                        log_file, 
+                        .{}
+                    ) catch undefined;
+                } else {
+                    break :blk undefined;
+                }
+            } else {
+                break :blk undefined;
+            }
         }
     };
 }
