@@ -1,6 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const c = @cImport({
+    @cInclude("string.h");
+});
 const c_sdl = @cImport({
     @cInclude("SDL.h");
     @cInclude("SDL_opengl.h");
@@ -26,6 +29,18 @@ const Self = @This();
 
 const settings_path = "./settings.json";
 const path_buffer_length = 2048;
+
+const InputType = enum {
+    D_UP,
+    D_LEFT,
+    D_DOWN,
+    D_RIGHT,
+    START,
+    SELECT,
+    A,
+    B,
+    LOGGING
+};
 
 allocator: Allocator,
 
@@ -89,6 +104,8 @@ saved_settings: struct {
         logging: c_int = c_sdl.SDLK_l,
     } = .{}
 } = .{},
+
+awaiting_input: ?InputType = null,
 
 pub fn init(allocator: Allocator) Self {
     var gui: Self = .{
@@ -172,7 +189,8 @@ pub fn show(
     emulator: *Emulator, 
     palette_viewer_texture_update_fn: *const fn () void,
     sprite_viewer_texture_update_fn: *const fn () void,
-    nametable_viewer_texture_update_fn: *const fn () void
+    nametable_viewer_texture_update_fn: *const fn () void,
+    query_last_input_fn: *const fn () ?c_sdl.SDL_Keycode
 ) void {
     self.showMainWindow(emulator);
         if (self.show_load_rom_modal) {
@@ -197,8 +215,8 @@ pub fn show(
             self.showPerformanceMonitor();
             self.surplus_time = 0;
         }
-        if (self.saved_settings.show_control_settings_modal) {
-            self.showSetControlsModal();
+        if (self.saved_settings.show_control_settings_modal or self.awaiting_input != null) {
+            self.showSetControlsModal(query_last_input_fn);
         }
 }
 
@@ -316,58 +334,89 @@ fn showSettingsMenu(self: *Self, emulator: *Emulator) void {
     }
 }
 
-pub fn showSetControlsModal(self: *Self) void {
+pub fn showSetControlsModal(self: *Self, query_last_input_fn: *const fn () ?c_sdl.SDL_Keycode) void {
     const show_controls_modal = c_imgui.igBegin(
         "Controls", 
         &self.saved_settings.show_control_settings_modal, 
         c_imgui.ImGuiWindowFlags_NoCollapse |
         c_imgui.ImGuiWindowFlags_NoResize     
     );
-    if (show_controls_modal) {
-        const button_width: f32 = 60;
+    if (show_controls_modal or self.awaiting_input != null) {
+        const button_width: f32 = 180;
 
         const controls = [_]struct {
             label: [*c]const u8,
-            control_ref: *c_int
+            control_ref: *c_int,
+            input_type: InputType
         } {
             .{
                 .label = "Up: ",
-                .control_ref = &self.saved_settings.controls.d_up
+                .control_ref = &self.saved_settings.controls.d_up,
+                .input_type = InputType.D_UP
             },
             .{
                 .label = "Down: ",
-                .control_ref = &self.saved_settings.controls.d_down
+                .control_ref = &self.saved_settings.controls.d_down,
+                .input_type = InputType.D_DOWN
             },
             .{
                 .label = "Left: ",
-                .control_ref = &self.saved_settings.controls.d_left
+                .control_ref = &self.saved_settings.controls.d_left,
+                .input_type = InputType.D_LEFT
             },
             .{
                 .label = "Right: ",
-                .control_ref = &self.saved_settings.controls.d_right
+                .control_ref = &self.saved_settings.controls.d_right,
+                .input_type = InputType.D_RIGHT
             },
             .{
                 .label = "A: ",
-                .control_ref = &self.saved_settings.controls.a
+                .control_ref = &self.saved_settings.controls.a,
+                .input_type = InputType.A
             },
             .{
                 .label = "B: ",
-                .control_ref = &self.saved_settings.controls.b
+                .control_ref = &self.saved_settings.controls.b,
+                .input_type = InputType.B
             },
             .{
                 .label = "Select: ",
-                .control_ref = &self.saved_settings.controls.select
+                .control_ref = &self.saved_settings.controls.select,
+                .input_type = InputType.SELECT
             },
             .{
                 .label = "Start: ",
-                .control_ref = &self.saved_settings.controls.start
+                .control_ref = &self.saved_settings.controls.start,
+                .input_type = InputType.START
             },
         };
         for (controls) |control| {
             c_imgui.igText(control.label);
             c_imgui.igSameLine(50, 5);
-            if (c_imgui.igButton(c_sdl.SDL_GetKeyName(control.control_ref.*), .{.x = button_width, .y = 0})) {
+
+            if (self.awaiting_input == control.input_type) {
+                _ = c_imgui.igButton("Press Any Key...", .{.x = button_width, .y = 0});
+                const last_input = query_last_input_fn();
+                if (last_input) |input| {
+                    control.control_ref.* = input;
+                    self.awaiting_input = null;
+                }
+            } else {
+                var b: [128]u8 = undefined;
+                @memset(b[0..], 0);
+
+                const name = c_sdl.SDL_GetKeyName(control.control_ref.*);
+
+                _ = c.strcat(@ptrCast(&b), name);
+                _ = c.strcat(@ptrCast(&b), "##");
+                _ = c.strcat(@ptrCast(&b), control.label);
+
+                if (c_imgui.igButton(@ptrCast(&b), .{.x = button_width, .y = 0})) {
+                    self.awaiting_input = control.input_type;
+                }
             }
+
+
         }
     }
     c_imgui.igEnd();

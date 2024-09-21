@@ -26,6 +26,36 @@ const NametableViewer = @import("../../core/ppu/debug/nametable_viewer.zig");
 
 const Self = @This();
 
+pub const sample_buffer_size = 2048;
+pub const audio_frequency = 44100;
+pub const ppu_log_file: ?[]const u8 = "./log/ZigNES_PPU.log";
+pub const cpu_log_file: ?[]const u8 = "./log/ZigNES.log";
+
+var gpa = GPA(.{}){};
+
+var window: ?*c_sdl.SDL_Window = null;
+var current_display_mode: c_sdl.SDL_DisplayMode = undefined;
+var gl_context: c_sdl.SDL_GLContext = undefined;
+
+var spec_requested: c_sdl.SDL_AudioSpec = .{
+    .freq = audio_frequency, 
+    .format = c_sdl.AUDIO_U16,
+    .channels = 1,
+    .silence = undefined,
+    .samples = sample_buffer_size,
+    .size = undefined,
+    .callback = null,
+    .userdata = undefined,
+    .padding = undefined
+};
+var spec_obtained: c_sdl.SDL_AudioSpec = undefined;
+var audio_device: c_sdl.SDL_AudioDeviceID = undefined;
+var last_input: ?c_sdl.SDL_Keycode = null;
+
+var emulator: *Emulator = undefined;
+var gui: Gui = undefined;
+var controller_status: ControllerStatus = .{};
+
 fn initSDL() !void {
     if (c_sdl.SDL_Init(c_sdl.SDL_INIT_VIDEO | c_sdl.SDL_INIT_AUDIO) != 0) {
         std.debug.print("ZigNES: Failed to initialize SDL: {s}\n", .{c_sdl.SDL_GetError()});
@@ -114,6 +144,8 @@ fn createTexture() c_uint {
 
 fn pollEvents() void {
     var sdl_event: c_sdl.SDL_Event = undefined;
+    last_input = null;
+
     while (c_sdl.SDL_PollEvent(&sdl_event) != 0) {
         _ = c_imgui.ImGui_ImplSDL2_ProcessEvent(@ptrCast(&sdl_event));
         switch (sdl_event.type) {
@@ -121,35 +153,35 @@ fn pollEvents() void {
                 gui.not_quit = false;
             },
             c_sdl.SDL_KEYDOWN, c_sdl.SDL_KEYUP => {
-                switch (sdl_event.key.keysym.sym) {
-                    c_sdl.SDLK_w, c_sdl.SDLK_UP => {
-                        controller_status.up = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_a, c_sdl.SDLK_LEFT => {
-                        controller_status.left = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_s, c_sdl.SDLK_DOWN => {
-                        controller_status.down = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_d, c_sdl.SDLK_RIGHT => {
-                        controller_status.right = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_RETURN => {
-                        controller_status.start = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_SPACE => {
-                        controller_status.select = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_j => {
-                        controller_status.a = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_k => {
-                        controller_status.b = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    c_sdl.SDLK_l => {
-                        emulator.cpu.should_log = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
-                    },
-                    else => {}
+
+                last_input = sdl_event.key.keysym.sym;
+
+                if (last_input == gui.saved_settings.controls.d_up) {
+                    controller_status.up = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.d_left) {
+                    controller_status.left = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.d_down) {
+                    controller_status.down = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.d_right) {
+                    controller_status.right = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.start) {
+                    controller_status.start = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.select) {
+                    controller_status.select = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.a) {
+                    controller_status.a = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == gui.saved_settings.controls.b) {
+                    controller_status.b = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
+                }
+                if (last_input == c_sdl.SDLK_l) {
+                    emulator.cpu.should_log = @bitCast(sdl_event.type == c_sdl.SDL_KEYDOWN);
                 }
             },
             else => {},
@@ -203,6 +235,10 @@ fn updateNametableViewerTexture() void {
         emulator.getNametableViewerPixels()
     );
     c_glew.glBindTexture(c_glew.GL_TEXTURE_2D, 0);
+}
+
+fn queryLastInput() ?c_sdl.SDL_Keycode {
+    return last_input;
 }
 
 pub fn renderCallback() void {
@@ -266,35 +302,6 @@ fn render() void {
     c_sdl.SDL_GL_SwapWindow(window);
 }
 
-pub const sample_buffer_size = 2048;
-pub const audio_frequency = 44100;
-pub const ppu_log_file: ?[]const u8 = "./log/ZigNES_PPU.log";
-pub const cpu_log_file: ?[]const u8 = "./log/ZigNES.log";
-
-var gpa = GPA(.{}){};
-
-var window: ?*c_sdl.SDL_Window = null;
-var current_display_mode: c_sdl.SDL_DisplayMode = undefined;
-var gl_context: c_sdl.SDL_GLContext = undefined;
-
-var spec_requested: c_sdl.SDL_AudioSpec = .{
-    .freq = audio_frequency, 
-    .format = c_sdl.AUDIO_U16,
-    .channels = 1,
-    .silence = undefined,
-    .samples = sample_buffer_size,
-    .size = undefined,
-    .callback = null,
-    .userdata = undefined,
-    .padding = undefined
-};
-var spec_obtained: c_sdl.SDL_AudioSpec = undefined;
-var audio_device: c_sdl.SDL_AudioDeviceID = undefined;
-
-var emulator: *Emulator = undefined;
-var gui: Gui = undefined;
-var controller_status: ControllerStatus = .{};
-
 pub fn begin(emu: *Emulator) !void {
     const allocator = gpa.allocator();
     emulator = emu;
@@ -347,7 +354,8 @@ pub fn begin(emu: *Emulator) !void {
             emulator,
             updatePaletteViewerTexture,
             updateSpriteViewerTexture,
-            updateNametableViewerTexture
+            updateNametableViewerTexture,
+            queryLastInput
         );
 
         render();
